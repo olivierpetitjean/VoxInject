@@ -216,12 +216,10 @@ public sealed class VoxController : IDisposable
     private void OnLevelChanged(double db)
     {
         _overlay.SetAudioLevel(db);
-        var speaking = db >= _silenceThresholdDb;
-        _overlay.SetSpeaking(speaking);
 
-        if (speaking)
+        if (db >= _silenceThresholdDb)
         {
-            // Voice detected — open gate, reset silence timer
+            if (!_vadStreaming) FileLogger.Log("VAD → Listening (stream open)");
             _vadStreaming    = true;
             _vadSilenceSince = 0;
             _silenceLocal    = false;
@@ -235,8 +233,12 @@ public sealed class VoxController : IDisposable
             {
                 _vadStreaming    = false;
                 _vadSilenceSince = 0;
+                FileLogger.Log("VAD → Idle (stream closed)");
             }
         }
+
+        // Overlay reflects VAD state, not raw RMS — stays green during micro-pauses
+        _overlay.SetSpeaking(_vadStreaming);
     }
 
     private void OnSilenceDetected()
