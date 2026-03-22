@@ -22,7 +22,7 @@
                      ShowMinimize="False"/>
 
         <!-- ── Tabs ────────────────────────────────────────────────────────── -->
-        <TabControl Grid.Row="1" Margin="20,4,0,0">
+        <TabControl Grid.Row="1" Margin="20,4,20,0">
 
             <!-- ┌─ API ────────────────────────────────────────────────────┐ -->
             <TabItem Header="API">
