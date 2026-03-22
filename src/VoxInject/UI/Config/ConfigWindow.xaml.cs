@@ -123,6 +123,7 @@ public partial class ConfigWindow : Window
 
         AutoEnterCheck.IsChecked = p.AutoEnterOnSilence;
         SilenceBox.Text          = p.SilenceTimeoutMs.ToString();
+        SelectComboByTag(EnterKeyCombo, p.UseShiftEnter ? "ShiftEnter" : "Enter");
         SilencePanel.IsEnabled   = p.AutoEnterOnSilence;
     }
 
@@ -138,6 +139,7 @@ public partial class ConfigWindow : Window
                                  out var mode) ? mode : RecordingMode.Toggle,
         MicrophoneDeviceId = (MicCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty,
         AutoEnterOnSilence = AutoEnterCheck.IsChecked == true,
+        UseShiftEnter      = (EnterKeyCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() == "ShiftEnter",
         SilenceTimeoutMs   = int.TryParse(SilenceBox.Text, out var ms) ? ms : 1500
     };
 

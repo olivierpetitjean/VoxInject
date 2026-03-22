@@ -247,8 +247,9 @@ public sealed class VoxController : IDisposable
 
     private void PressEnterAfterTurn()
     {
-        FileLogger.Log("PressEnter");
-        _inject.Inject(string.Empty, appendEnter: true);
+        var shiftEnter = ActiveProfile().UseShiftEnter;
+        FileLogger.Log($"PressEnter — shiftEnter={shiftEnter}");
+        _inject.Inject(string.Empty, appendEnter: true, shiftEnter: shiftEnter);
         _silenceLocal           = false;
         _transcriptionDone      = false;
         _needsSpaceBetweenTurns = false;

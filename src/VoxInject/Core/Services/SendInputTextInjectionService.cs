@@ -14,13 +14,13 @@ namespace VoxInject.Core.Services;
 /// </summary>
 public sealed class SendInputTextInjectionService : ITextInjectionService
 {
-    public void Inject(string text, bool appendEnter = false)
+    public void Inject(string text, bool appendEnter = false, bool shiftEnter = false)
     {
         if (string.IsNullOrEmpty(text) && !appendEnter) return;
-        InjectViaKeystrokes(text, appendEnter);
+        InjectViaKeystrokes(text, appendEnter, shiftEnter);
     }
 
-    private static void InjectViaKeystrokes(string text, bool appendEnter)
+    private static void InjectViaKeystrokes(string text, bool appendEnter, bool shiftEnter = false)
     {
         // Each char needs keydown + keyup; surrogate pairs need 2 × 2 events
         var inputs = new List<NativeMethods.INPUT>(text.Length * 2 + 2);
@@ -47,8 +47,10 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
 
         if (appendEnter)
         {
-            AppendVkKey(inputs, 0x0D, keyDown: true);   // VK_RETURN
-            AppendVkKey(inputs, 0x0D, keyDown: false);
+            if (shiftEnter) AppendVkKey(inputs, 0xA0, keyDown: true); // VK_LSHIFT down
+            AppendVkKey(inputs, 0x0D, keyDown: true);                 // VK_RETURN down
+            AppendVkKey(inputs, 0x0D, keyDown: false);                // VK_RETURN up
+            if (shiftEnter) AppendVkKey(inputs, 0xA0, keyDown: false); // VK_LSHIFT up
         }
 
         var arr    = inputs.ToArray();
@@ -56,7 +58,7 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
         NativeMethods.SendInput((uint)arr.Length, arr, cbSize);
     }
 
-    private static void InjectViaClipboard(string text, bool appendEnter)
+    private static void InjectViaClipboard(string text, bool appendEnter, bool shiftEnter = false)
     {
         // Must run on STA thread — WPF apps are STA so this is fine
         var previous = string.Empty;
@@ -81,12 +83,20 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
 
             if (appendEnter)
             {
-                var enter = new[]
-                {
-                    MakeVkInput(0x0D, keyDown: true),
-                    MakeVkInput(0x0D, keyDown: false)
-                };
-                NativeMethods.SendInput(2, enter, Marshal.SizeOf<NativeMethods.INPUT>());
+                var enter = shiftEnter
+                    ? new[]
+                      {
+                          MakeVkInput(0xA0, keyDown: true),  // VK_LSHIFT down
+                          MakeVkInput(0x0D, keyDown: true),  // VK_RETURN down
+                          MakeVkInput(0x0D, keyDown: false), // VK_RETURN up
+                          MakeVkInput(0xA0, keyDown: false)  // VK_LSHIFT up
+                      }
+                    : new[]
+                      {
+                          MakeVkInput(0x0D, keyDown: true),
+                          MakeVkInput(0x0D, keyDown: false)
+                      };
+                NativeMethods.SendInput((uint)enter.Length, enter, Marshal.SizeOf<NativeMethods.INPUT>());
             }
 
             // Restore clipboard after a brief delay (paste needs to complete first)

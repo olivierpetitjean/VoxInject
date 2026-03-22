@@ -81,16 +81,30 @@
                           Content="Auto press Enter on silence"
                           Checked="AutoEnterCheck_Changed"
                           Unchecked="AutoEnterCheck_Changed"/>
-                <Grid x:Name="SilencePanel" IsEnabled="False">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="80"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Silence timeout (ms)"
-                               VerticalAlignment="Center" Opacity="0.6" FontSize="12"/>
-                    <TextBox x:Name="SilenceBox" Grid.Column="1" Text="1500"
-                             HorizontalContentAlignment="Right"/>
-                </Grid>
+                <ui:SimpleStackPanel x:Name="SilencePanel" Spacing="4" IsEnabled="False">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="80"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Silence timeout (ms)"
+                                   VerticalAlignment="Center" Opacity="0.6" FontSize="12"/>
+                        <TextBox x:Name="SilenceBox" Grid.Column="1" Text="1500"
+                                 HorizontalContentAlignment="Right"/>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Key to press"
+                                   VerticalAlignment="Center" Opacity="0.6" FontSize="12"/>
+                        <ComboBox x:Name="EnterKeyCombo" Grid.Column="1" MinWidth="130">
+                            <ComboBoxItem Content="Enter"       Tag="Enter"/>
+                            <ComboBoxItem Content="Shift+Enter" Tag="ShiftEnter"/>
+                        </ComboBox>
+                    </Grid>
+                </ui:SimpleStackPanel>
             </ui:SimpleStackPanel>
 
             <Separator Margin="0,0,0,16"/>
