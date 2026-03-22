@@ -25,7 +25,7 @@
         <TabControl Grid.Row="1" Margin="0">
 
             <!-- ┌─ API ────────────────────────────────────────────────────┐ -->
-            <TabItem Header="API">
+            <TabItem Header="API" Margin="8,0,0,0">
                 <StackPanel Margin="24,20">
                     <TextBlock Text="ASSEMBLYAI"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
@@ -74,6 +74,8 @@
 
             <!-- ┌─ Saisie ─────────────────────────────────────────────────┐ -->
             <TabItem Header="Saisie">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="24,20">
 
                     <!-- Microphone -->
@@ -147,10 +149,12 @@
                     <TextBlock Text="Cliquez dans le champ puis appuyez sur votre raccourci"
                                FontSize="12" Opacity="0.7" Margin="0,0,0,6"/>
                     <TextBox x:Name="HotkeyBox" IsReadOnly="True" Cursor="Hand"
+                             Margin="0,0,0,20"
                              PreviewKeyDown="HotkeyBox_PreviewKeyDown"
                              GotFocus="HotkeyBox_GotFocus"
                              LostFocus="HotkeyBox_LostFocus"/>
                 </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <!-- ┌─ Overlay ────────────────────────────────────────────────┐ -->
