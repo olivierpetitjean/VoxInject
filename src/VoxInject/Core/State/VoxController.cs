@@ -114,7 +114,7 @@ public sealed class VoxController : IDisposable
 
             foreach (var field in provider.ConfigFields.Where(f => f.Type == ProviderFieldType.Password))
             {
-                var secret = _secrets.Load($"{provider.Id}.{field.Key}");
+                var secret = _secrets.Load($"{provider.Id}-{field.Key}");
                 if (!string.IsNullOrEmpty(secret)) config[field.Key] = secret;
             }
 

@@ -85,7 +85,7 @@ public partial class ConfigWindow : FluentWindow
 
             if (field.Type == ProviderFieldType.Password)
             {
-                var secret = _secrets.Load($"{provider.Id}.{field.Key}") ?? string.Empty;
+                var secret = _secrets.Load($"{provider.Id}-{field.Key}") ?? string.Empty;
                 var box = new Wpf.Ui.Controls.PasswordBox
                 {
                     PlaceholderText = field.Placeholder,
@@ -130,7 +130,7 @@ public partial class ConfigWindow : FluentWindow
                 && control is Wpf.Ui.Controls.PasswordBox pb)
             {
                 if (!string.IsNullOrEmpty(pb.Password))
-                    _secrets.Save($"{provider.Id}.{field.Key}", pb.Password);
+                    _secrets.Save($"{provider.Id}-{field.Key}", pb.Password);
             }
             else if (control is System.Windows.Controls.TextBox tb)
             {

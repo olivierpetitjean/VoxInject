@@ -50,7 +50,7 @@ public partial class App : Application
             p => p.Id == _settings.Current.ActiveProviderId) ?? _providers.FirstOrDefault();
         var hasAnySecret = activeProvider?.ConfigFields
             .Where(f => f.Type == ProviderFieldType.Password)
-            .Any(f => !string.IsNullOrEmpty(_secrets.Load($"{activeProvider.Id}.{f.Key}"))) ?? false;
+            .Any(f => !string.IsNullOrEmpty(_secrets.Load($"{activeProvider.Id}-{f.Key}"))) ?? false;
         if (!hasAnySecret)
             OpenConfigWindow();
     }
