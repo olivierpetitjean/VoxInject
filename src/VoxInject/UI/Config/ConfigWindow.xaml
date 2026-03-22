@@ -76,7 +76,7 @@
             <TabItem Header="Saisie">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="4,20">
+                <StackPanel Margin="4,20,14,20">
 
                     <!-- Microphone -->
                     <TextBlock Text="MICROPHONE"
