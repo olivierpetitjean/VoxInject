@@ -22,11 +22,11 @@
                      ShowMinimize="False"/>
 
         <!-- ── Tabs ────────────────────────────────────────────────────────── -->
-        <TabControl Grid.Row="1" Margin="0,4,0,0">
+        <TabControl Grid.Row="1" Margin="20,4,0,0">
 
             <!-- ┌─ API ────────────────────────────────────────────────────┐ -->
-            <TabItem Header="API" Margin="20,0,0,0">
-                <StackPanel Margin="24,20">
+            <TabItem Header="API">
+                <StackPanel Margin="4,20">
                     <TextBlock Text="ASSEMBLYAI"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
                                Margin="0,0,0,10"/>
@@ -39,7 +39,7 @@
 
             <!-- ┌─ Profil ─────────────────────────────────────────────────┐ -->
             <TabItem Header="Profil">
-                <StackPanel Margin="24,20">
+                <StackPanel Margin="4,20">
                     <TextBlock Text="PROFIL"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
                                Margin="0,0,0,10"/>
@@ -76,7 +76,7 @@
             <TabItem Header="Saisie">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="24,20">
+                <StackPanel Margin="4,20">
 
                     <!-- Microphone -->
                     <TextBlock Text="MICROPHONE"
@@ -159,7 +159,7 @@
 
             <!-- ┌─ Overlay ────────────────────────────────────────────────┐ -->
             <TabItem Header="Overlay">
-                <StackPanel Margin="24,20">
+                <StackPanel Margin="4,20">
                     <TextBlock Text="POSITION"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
                                Margin="0,0,0,10"/>
@@ -214,7 +214,7 @@
 
             <!-- ┌─ Système ────────────────────────────────────────────────┐ -->
             <TabItem Header="Système">
-                <StackPanel Margin="24,20">
+                <StackPanel Margin="4,20">
                     <TextBlock Text="SON"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
                                Margin="0,0,0,10"/>
