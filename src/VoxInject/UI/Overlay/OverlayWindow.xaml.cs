@@ -20,18 +20,32 @@ public partial class OverlayWindow : Window
     private double _targetScale = 1.0;
     private double _currentScale = 1.0;
 
-    // Purple = initializing/processing, Orange = silence, Green = speaking
-    private static readonly Color ColorInit     = Color.FromRgb(0x6A, 0x3D, 0xE8);
-    private static readonly Color ColorSilence  = Color.FromRgb(0xFF, 0xA5, 0x00);
-    private static readonly Color ColorSpeaking = Color.FromRgb(0x44, 0xCC, 0x44);
+    // Purple = init/processing, Orange = listening/silent, Green base/light = speaking
+    private static readonly Color ColorInit          = Color.FromRgb(0x6A, 0x3D, 0xE8);
+    private static readonly Color ColorSilence       = Color.FromRgb(0xFF, 0xA5, 0x00);
+    private static readonly Color ColorSpeakingBase  = Color.FromRgb(0x44, 0xCC, 0x44);
+    private static readonly Color ColorSpeakingLight = Color.FromRgb(0x88, 0xFF, 0x88);
 
-    private VoxState _currentState = VoxState.Idle;
+    // Reusable brushes — updated in-place to avoid GC pressure at 30 fps
+    private readonly SolidColorBrush _dotBrush  = new(Color.FromRgb(0xFF, 0xA5, 0x00));
+    private readonly SolidColorBrush _ringBrush = new(Color.FromArgb(0, 0xFF, 0xA5, 0x00));
+
+    private VoxState _currentState    = VoxState.Idle;
     private bool     _isSpeaking;
+
+    // Speaking-hold: stay green for ~10 frames (~330 ms) after audio drops below
+    // threshold, so brief inter-word silences don't flash orange.
+    private volatile int _speakingHoldFrames;
+    private const    int SpeakingHoldFrames = 10;
 
     public OverlayWindow(ISettingsService settings)
     {
         _settings = settings;
         InitializeComponent();
+
+        // Wire reusable brushes to XAML elements
+        StatusDot.Fill   = _dotBrush;
+        PulseRing.Stroke = _ringBrush;
 
         _levelTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
@@ -94,9 +108,9 @@ public partial class OverlayWindow : Window
     /// </summary>
     public void SetSpeaking(bool isSpeaking)
     {
-        if (_isSpeaking == isSpeaking) return;
-        _isSpeaking = isSpeaking;
-        Dispatcher.InvokeAsync(UpdateDotColor);
+        if (isSpeaking)
+            Interlocked.Exchange(ref _speakingHoldFrames, SpeakingHoldFrames);
+        // Silence: let the hold countdown in OnLevelTick expire naturally
     }
 
     /// <summary>
@@ -116,16 +130,51 @@ public partial class OverlayWindow : Window
 
     private void OnLevelTick(object? sender, EventArgs e)
     {
-        // Smooth interpolation toward target scale (ease-out feel)
+        // ── Speaking-hold countdown ───────────────────────────────────────────
+        var prevSpeaking = _isSpeaking;
+        if (_speakingHoldFrames > 0)
+        {
+            Interlocked.Decrement(ref _speakingHoldFrames);
+            _isSpeaking = true;
+        }
+        else
+        {
+            _isSpeaking = false;
+        }
+        if (_isSpeaking != prevSpeaking)
+            UpdateDotColor();
+
+        // ── Scale animation (ease-out toward target) ─────────────────────────
         var target = Volatile.Read(ref _targetScale);
         _currentScale += (target - _currentScale) * 0.25;
 
         PulseScale.ScaleX = _currentScale;
         PulseScale.ScaleY = _currentScale;
 
-        // Show pulse ring only when actively pulsing above resting scale
-        PulseRing.Opacity = Math.Max(0, (_currentScale - 1.0) * 0.8);
+        // ── Color fluctuation when speaking ──────────────────────────────────
+        // Interpolate dot and ring between base green and a slightly lighter
+        // shade proportional to audio level — no orange flashing, subtle only.
+        if (_currentState == VoxState.Listening && _isSpeaking)
+        {
+            var t = Math.Clamp((_currentScale - 1.0) / 0.5, 0.0, 1.0);
+            var c = LerpColor(ColorSpeakingBase, ColorSpeakingLight, t);
+            _dotBrush.Color  = c;
+            _ringBrush.Color = Color.FromArgb((byte)(0x99 * t), c.R, c.G, c.B);
+            PulseRing.Opacity = 1;
+        }
+        else
+        {
+            PulseRing.Opacity = 0;
+        }
     }
+
+    private static Color LerpColor(Color a, Color b, double t) => Color.FromRgb(
+        (byte)(a.R + (b.R - a.R) * t),
+        (byte)(a.G + (b.G - a.G) * t),
+        (byte)(a.B + (b.B - a.B) * t));
+
+    // Transparent padding around the circle so the pulse ring has room to scale.
+    private const int RingPad = 20;
 
     private void ApplyStateVisuals(VoxState state)
     {
@@ -134,21 +183,28 @@ public partial class OverlayWindow : Window
         UpdateDotColor();
 
         var size = _settings.Current.OverlaySize;
-        Width   = size;
-        Height  = size;
+        Width   = size + RingPad * 2;
+        Height  = size + RingPad * 2;
         Opacity = _settings.Current.OverlayOpacity;
+
+        ContentGrid.Width  = size;
+        ContentGrid.Height = size;
+        PulseRing.Width    = size;
+        PulseRing.Height   = size;
+        PulseScale.CenterX = size / 2.0;
+        PulseScale.CenterY = size / 2.0;
     }
 
     private void UpdateDotColor()
     {
         var color = (_currentState == VoxState.Listening && _isSpeaking)
-            ? ColorSpeaking
+            ? ColorSpeakingBase
             : (_currentState == VoxState.Listening)
                 ? ColorSilence
                 : ColorInit;
 
-        StatusDot.Fill   = new SolidColorBrush(color);
-        PulseRing.Stroke = new SolidColorBrush(Color.FromArgb(0xAA, color.R, color.G, color.B));
+        _dotBrush.Color  = color;
+        _ringBrush.Color = Color.FromArgb(0, color.R, color.G, color.B);
     }
 
     private void PositionToCorner()
@@ -172,13 +228,15 @@ public partial class OverlayWindow : Window
         double right  = raw.Right  / dpi;
         double bottom = raw.Bottom / dpi;
 
+        // The window is (size + 2×RingPad) wide/tall. Offset by RingPad so the
+        // visible circle lands at the intended corner position.
         (Left, Top) = s.OverlayCorner switch
         {
-            OverlayCorner.TopLeft     => (left  + margin,         top    + margin),
-            OverlayCorner.TopRight    => (right - size - margin,  top    + margin),
-            OverlayCorner.BottomLeft  => (left  + margin,         bottom - size - margin),
-            OverlayCorner.BottomRight => (right - size - margin,  bottom - size - margin),
-            _                         => (right - size - margin,  bottom - size - margin)
+            OverlayCorner.TopLeft     => (left  + margin - RingPad,          top    + margin - RingPad),
+            OverlayCorner.TopRight    => (right - size - margin - RingPad,   top    + margin - RingPad),
+            OverlayCorner.BottomLeft  => (left  + margin - RingPad,          bottom - size - margin - RingPad),
+            OverlayCorner.BottomRight => (right - size - margin - RingPad,   bottom - size - margin - RingPad),
+            _                         => (right - size - margin - RingPad,   bottom - size - margin - RingPad)
         };
     }
 
