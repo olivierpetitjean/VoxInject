@@ -43,9 +43,7 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
         // Authentication via Authorization header
         _ws.Options.SetRequestHeader("Authorization", apiKey);
 
-        Diagnostics.FileLogger.Log($"AssemblyAI — connecting to {uri}");
         await _ws.ConnectAsync(uri, _cts.Token).ConfigureAwait(false);
-        Diagnostics.FileLogger.Log("AssemblyAI — WebSocket open");
 
         _started     = true;
         _receiveLoop = Task.Run(() => ReceiveLoopAsync(_cts.Token), _cts.Token);
@@ -58,20 +56,15 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
         // ClientWebSocket forbids concurrent sends — drop the chunk if a send
         // is already in flight rather than queuing (audio is real-time).
         if (!await _sendGate.WaitAsync(0).ConfigureAwait(false))
-        {
-            Diagnostics.FileLogger.Log("AssemblyAI — SendAudio: dropped chunk (send busy)");
             return;
-        }
         try
         {
             if (_ws.State != WebSocketState.Open) return;
-            var t0 = Environment.TickCount64;
             await _ws.SendAsync(
                 new ArraySegment<byte>(pcm16Chunk),
                 WebSocketMessageType.Binary,
                 endOfMessage: true,
                 _cts!.Token).ConfigureAwait(false);
-            Diagnostics.FileLogger.Log($"AssemblyAI — SendAudio: sent {pcm16Chunk.Length} bytes in {Environment.TickCount64 - t0} ms");
         }
         finally
         {
@@ -90,17 +83,13 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
                 // any remaining transcripts and close the connection.
                 var terminate = """{"type":"Terminate"}""";
                 var bytes     = Encoding.UTF8.GetBytes(terminate);
-                Diagnostics.FileLogger.Log("AssemblyAI — sending Terminate");
                 await _ws.SendAsync(bytes, WebSocketMessageType.Text, true,
                     CancellationToken.None).ConfigureAwait(false);
 
                 // Wait up to 1 s for the server to send end_of_turn transcripts
                 await Task.Delay(1000).ConfigureAwait(false);
             }
-            else
-            {
-                Diagnostics.FileLogger.Log($"AssemblyAI — StopAsync: ws state={_ws.State}, skipping Terminate");
-            }
+            else { /* socket already closed, nothing to send */ }
         }
         catch { /* ignore send errors during shutdown */ }
         finally
@@ -126,10 +115,7 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
                 {
                     result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        Diagnostics.FileLogger.Log($"AssemblyAI — server closed: {result.CloseStatus} — {result.CloseStatusDescription}");
                         return;
-                    }
                     ms.Write(buffer, 0, result.Count);
                 }
                 while (!result.EndOfMessage);
@@ -138,24 +124,15 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
                 HandleMessage(json);
             }
         }
-        catch (OperationCanceledException)
-        {
-            Diagnostics.FileLogger.Log("AssemblyAI — receive loop cancelled");
-        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Diagnostics.FileLogger.Log($"AssemblyAI — receive loop EXCEPTION: {ex.GetType().Name}: {ex.Message}");
             SessionError?.Invoke(ex.Message);
-        }
-        finally
-        {
-            Diagnostics.FileLogger.Log($"AssemblyAI — receive loop exited. ws state={_ws?.State}");
         }
     }
 
     private void HandleMessage(string json)
     {
-        Diagnostics.FileLogger.Log($"AssemblyAI ← {json[..Math.Min(json.Length, 200)]}");
         try
         {
             var node = JsonNode.Parse(json);
@@ -176,7 +153,6 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
             else if (type == "Error")
             {
                 var msg = node?["error"]?.GetValue<string>() ?? json;
-                Diagnostics.FileLogger.Log($"AssemblyAI error: {msg}");
                 SessionError?.Invoke(msg);
             }
             // SessionBegins and Termination are informational — no action needed

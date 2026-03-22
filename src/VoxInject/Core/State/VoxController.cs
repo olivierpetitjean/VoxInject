@@ -25,8 +25,10 @@ public sealed class VoxController : IDisposable
     private readonly SemaphoreSlim _lock = new(1, 1);
     private bool                   _hotkeyHeld;
     private double                 _silenceThresholdDb;
-    private int                    _injectedLength;       // chars already injected for current turn
+    private int                    _injectedLength;
     private bool                   _needsSpaceBetweenTurns;
+    private volatile bool          _silenceLocal;       // true = local silence detected
+    private volatile bool          _transcriptionDone;  // true = end_of_turn received, waiting for silence
 
     public event Action<string>? Error;
 
@@ -44,7 +46,6 @@ public sealed class VoxController : IDisposable
 
     public async Task OnHotkeyPressedAsync()
     {
-        FileLogger.Log($"Hotkey pressed — state={_state}");
         _focus.Snapshot();
         var profile = ActiveProfile();
 
@@ -79,11 +80,10 @@ public sealed class VoxController : IDisposable
 
     private async Task StartListeningAsync(Profile profile)
     {
-        FileLogger.Log("StartListening — waiting for lock");
-        if (!await _lock.WaitAsync(0).ConfigureAwait(false)) { FileLogger.Log("StartListening — lock busy, aborting"); return; }
+        if (!await _lock.WaitAsync(0).ConfigureAwait(false)) return;
         try
         {
-            if (_state != VoxState.Idle) { FileLogger.Log($"StartListening — wrong state {_state}"); return; }
+            if (_state != VoxState.Idle) return;
 
             var apiKey = _secrets.Load("assemblyai-apikey");
             if (string.IsNullOrWhiteSpace(apiKey))
@@ -92,10 +92,14 @@ public sealed class VoxController : IDisposable
                 return;
             }
 
-            FileLogger.Log("StartListening — key OK, connecting WebSocket");
-            _state                   = VoxState.Listening;
-            _injectedLength          = 0;
-            _needsSpaceBetweenTurns  = false;
+            _state                  = VoxState.Listening;
+            _injectedLength         = 0;
+            _needsSpaceBetweenTurns = false;
+            _silenceLocal           = false;
+            _transcriptionDone      = false;
+
+            FileLogger.Reset();
+            FileLogger.Log($"Session start — AutoEnterOnSilence={profile.AutoEnterOnSilence} SilenceTimeoutMs={profile.SilenceTimeoutMs} ThresholdDb={profile.SilenceThresholdDb}");
 
             if (_settings.Current.ToneEnabled)
                 _tone.PlayActivation(_settings.Current.ToneVolume);
@@ -113,7 +117,6 @@ public sealed class VoxController : IDisposable
                 profile.AutoPunctuation,
                 profile.VocabularyBoost).ConfigureAwait(false);
 
-            FileLogger.Log("StartListening — WebSocket connected, starting audio");
             _audio.AudioChunkReady += OnAudioChunk;
             _audio.LevelChanged    += OnLevelChanged;
             _audio.SilenceDetected += OnSilenceDetected;
@@ -124,12 +127,9 @@ public sealed class VoxController : IDisposable
                 profile.MicrophoneDeviceId,
                 profile.SilenceThresholdDb,
                 profile.AutoEnterOnSilence ? profile.SilenceTimeoutMs : int.MaxValue);
-
-            FileLogger.Log($"StartListening — done. AutoEnterOnSilence={profile.AutoEnterOnSilence} SilenceTimeoutMs={profile.SilenceTimeoutMs}");
         }
         catch (Exception ex)
         {
-            FileLogger.Log($"StartListening — EXCEPTION: {ex}");
             Error?.Invoke($"Recording error: {ex.Message}");
             ResetToIdleUnsafe();
         }
@@ -141,33 +141,25 @@ public sealed class VoxController : IDisposable
 
     private async Task StopListeningAsync()
     {
-        FileLogger.Log($"StopListening — waiting for lock. state={_state}");
-        if (!await _lock.WaitAsync(0).ConfigureAwait(false)) { FileLogger.Log("StopListening — lock busy, aborting"); return; }
+        if (!await _lock.WaitAsync(0).ConfigureAwait(false)) return;
         try
         {
-            if (_state != VoxState.Listening) { FileLogger.Log($"StopListening — wrong state {_state}"); return; }
+            if (_state != VoxState.Listening) return;
 
-            FileLogger.Log("StopListening — A: setting state");
             _state = VoxState.Transcribing;
 
-            FileLogger.Log("StopListening — B: Dispatcher.Invoke UpdateState");
             _overlay.Dispatcher.Invoke(() => _overlay.UpdateState(VoxState.Transcribing));
 
-            FileLogger.Log("StopListening — C: unsubscribing audio");
             _audio.AudioChunkReady -= OnAudioChunk;
             _audio.LevelChanged    -= OnLevelChanged;
             _audio.SilenceDetected -= OnSilenceDetected;
             _audio.CaptureFailed   -= OnCaptureFailed;
 
-            FileLogger.Log("StopListening — D: calling _audio.Stop()");
             _audio.Stop();
-            FileLogger.Log("StopListening — E: _audio.Stop() done");
 
             if (_transcription is not null)
             {
-                FileLogger.Log("StopListening — calling StopAsync (2s timeout)");
                 await Task.WhenAny(_transcription.StopAsync(), Task.Delay(2000)).ConfigureAwait(false);
-                FileLogger.Log("StopListening — StopAsync done");
 
                 _transcription.PartialTranscript -= OnPartialTranscript;
                 _transcription.FinalTranscript   -= OnFinalTranscript;
@@ -194,18 +186,12 @@ public sealed class VoxController : IDisposable
         }
     }
 
-private void ResetToIdleUnsafe()
+    private void ResetToIdleUnsafe()
     {
-        FileLogger.Log("ResetToIdle");
         _state          = VoxState.Idle;
         _injectedLength = 0;
         _focus.Clear();
-        _overlay.Dispatcher.Invoke(() =>
-        {
-            FileLogger.Log("ResetToIdle — calling Hide() on UI thread");
-            _overlay.Hide();
-            FileLogger.Log($"ResetToIdle — Hide() done. IsVisible={_overlay.IsVisible}");
-        });
+        _overlay.Dispatcher.Invoke(() => _overlay.Hide());
     }
 
     // ── Event handlers ────────────────────────────────────────────────────────
@@ -216,24 +202,56 @@ private void ResetToIdleUnsafe()
     private void OnLevelChanged(double db)
     {
         _overlay.SetAudioLevel(db);
-        _overlay.SetSpeaking(db >= _silenceThresholdDb);
+        var speaking = db >= _silenceThresholdDb;
+        _overlay.SetSpeaking(speaking);
+        if (speaking) _silenceLocal = false;
     }
 
     private void OnSilenceDetected()
-        => _ = Task.Run(StopListeningAsync);
+    {
+        _silenceLocal = true;
+        FileLogger.Log($"SilenceDetected — transcriptionDone={_transcriptionDone}");
+        if (_transcriptionDone)
+            PressEnterAfterTurn();
+    }
 
     private void OnPartialTranscript(string text)
     {
-        FileLogger.Log($"Partial: '{text}'");
+        _transcriptionDone = false;
+        FileLogger.Log("Partial");
         InjectDelta(text, appendEnter: false);
     }
 
     private void OnFinalTranscript(string text)
     {
-        FileLogger.Log($"Final: '{text}'");
-        InjectDelta(text, appendEnter: ActiveProfile().AutoEnterOnSilence);
-        _injectedLength         = 0;
-        _needsSpaceBetweenTurns = true;  // next turn starts after a pause → needs a space
+        if (!ActiveProfile().AutoEnterOnSilence)
+        {
+            FileLogger.Log($"Final (manual): '{text}'");
+            InjectDelta(text, appendEnter: false);
+            _injectedLength         = 0;
+            _needsSpaceBetweenTurns = true;
+            return;
+        }
+
+        FileLogger.Log($"Final (autoEnter): '{text}' — silenceLocal={_silenceLocal}");
+        InjectDelta(text, appendEnter: false);
+        _injectedLength = 0;
+
+        if (_silenceLocal)
+            PressEnterAfterTurn();
+        else
+        {
+                _transcriptionDone = true;
+        }
+    }
+
+    private void PressEnterAfterTurn()
+    {
+        FileLogger.Log("PressEnter");
+        _inject.Inject(string.Empty, appendEnter: true);
+        _silenceLocal           = false;
+        _transcriptionDone      = false;
+        _needsSpaceBetweenTurns = false;
     }
 
     private void InjectDelta(string fullText, bool appendEnter)
@@ -260,6 +278,7 @@ private void ResetToIdleUnsafe()
 
     private void OnCaptureFailed(string error)
     {
+        FileLogger.Log($"CaptureFailed: {error}");
         Error?.Invoke($"Microphone error: {error}");
         _overlay.Dispatcher.Invoke(ResetToIdleUnsafe);
     }

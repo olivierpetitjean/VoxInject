@@ -21,6 +21,7 @@ public sealed class AudioCaptureService : IAudioCaptureService
     private int    _silenceTimeoutMs;
     private long   _silenceStartTick;  // 0 means "not in silence"
     private bool   _silenceFired;
+    private bool   _speechHasOccurred; // silence timer only starts after first speech burst
 
     public event Action<byte[]>? AudioChunkReady;
     public event Action<double>? LevelChanged;
@@ -35,6 +36,7 @@ public sealed class AudioCaptureService : IAudioCaptureService
         _silenceTimeoutMs   = silenceTimeoutMs;
         _silenceStartTick   = 0;
         _silenceFired       = false;
+        _speechHasOccurred  = false;
 
         _capture = CreateCapture(deviceId);
 
@@ -144,8 +146,16 @@ public sealed class AudioCaptureService : IAudioCaptureService
 
     private void HandleSilenceDetection(double db)
     {
-        if (db < _silenceThresholdDb)
+        if (db >= _silenceThresholdDb)
         {
+            // Speech detected — arm the timer and reset it
+            _speechHasOccurred = true;
+            _silenceStartTick  = 0;
+            _silenceFired      = false;
+        }
+        else if (_speechHasOccurred)
+        {
+            // Silence after speech — start / check timer
             if (_silenceStartTick == 0)
                 _silenceStartTick = Environment.TickCount64;
 
@@ -156,12 +166,7 @@ public sealed class AudioCaptureService : IAudioCaptureService
                 SilenceDetected?.Invoke();
             }
         }
-        else
-        {
-            // Speech detected — reset silence timer
-            _silenceStartTick = 0;
-            _silenceFired     = false;
-        }
+        // If !_speechHasOccurred, silence at session start is ignored entirely
     }
 
     private void OnRecordingStopped(object? sender, NAudio.Wave.StoppedEventArgs e)

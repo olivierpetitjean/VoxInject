@@ -16,7 +16,7 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
 {
     public void Inject(string text, bool appendEnter = false)
     {
-        if (string.IsNullOrEmpty(text)) return;
+        if (string.IsNullOrEmpty(text) && !appendEnter) return;
         InjectViaKeystrokes(text, appendEnter);
     }
 
@@ -51,12 +51,9 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
             AppendVkKey(inputs, 0x0D, keyDown: false);
         }
 
-        var arr      = inputs.ToArray();
-        var cbSize   = Marshal.SizeOf<NativeMethods.INPUT>();
-        var sent     = NativeMethods.SendInput((uint)arr.Length, arr, cbSize);
-        var errCode  = Marshal.GetLastWin32Error();
-        var elevated = IsElevated();
-        VoxInject.Diagnostics.FileLogger.Log($"SendInput: cbSize={cbSize} requested={arr.Length} sent={sent} err={errCode} elevated={elevated} ptr={IntPtr.Size*8}bit");
+        var arr    = inputs.ToArray();
+        var cbSize = Marshal.SizeOf<NativeMethods.INPUT>();
+        NativeMethods.SendInput((uint)arr.Length, arr, cbSize);
     }
 
     private static void InjectViaClipboard(string text, bool appendEnter)
@@ -80,9 +77,7 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
             inputs[2] = MakeVkInput(0x56, keyDown: false);  // 'V' up
             inputs[3] = MakeVkInput(0x11, keyDown: false);  // VK_CTRL up
 
-            var sent    = NativeMethods.SendInput(4, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
-            var errCode = Marshal.GetLastWin32Error();
-            VoxInject.Diagnostics.FileLogger.Log($"SendInput (clipboard Ctrl+V): requested=4 sent={sent} err={errCode}");
+            NativeMethods.SendInput(4, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
 
             if (appendEnter)
             {
@@ -102,10 +97,7 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
                 catch { }
             });
         }
-        catch (Exception ex)
-        {
-            VoxInject.Diagnostics.FileLogger.Log($"InjectViaClipboard FAILED: {ex.GetType().Name}: {ex.Message}");
-        }
+        catch { /* clipboard injection failed — silently drop */ }
     }
 
     private static void AppendUnicodeKey(List<NativeMethods.INPUT> list, char c, bool keyDown)
@@ -126,13 +118,6 @@ public sealed class SendInputTextInjectionService : ITextInjectionService
 
     private static void AppendVkKey(List<NativeMethods.INPUT> list, ushort vk, bool keyDown)
         => list.Add(MakeVkInput(vk, keyDown));
-
-    private static bool IsElevated()
-    {
-        using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
-        return new System.Security.Principal.WindowsPrincipal(id)
-            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-    }
 
     private static NativeMethods.INPUT MakeVkInput(ushort vk, bool keyDown) => new()
     {
