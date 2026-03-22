@@ -34,7 +34,7 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
         if (_started)
             throw new InvalidOperationException("Session already started.");
 
-        var query = BuildQueryString(language, wordBoost);
+        var query = BuildQueryString(language, autoPunctuation, wordBoost);
         var uri   = new Uri($"{WssEndpoint}?{query}");
 
         _ws  = new ClientWebSocket();
@@ -165,7 +165,7 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static string BuildQueryString(string language, string[] wordBoost)
+    private static string BuildQueryString(string language, bool autoPunctuation, string[] wordBoost)
     {
         var parts = new List<string>
         {
@@ -179,6 +179,9 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
             : "universal-streaming-multilingual";
 
         parts.Add($"speech_model={Uri.EscapeDataString(model)}");
+
+        if (autoPunctuation)
+            parts.Add("punctuate=true");
 
         if (wordBoost.Length > 0)
         {
