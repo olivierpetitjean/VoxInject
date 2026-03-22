@@ -2,13 +2,14 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using VoxInject.Providers.Abstractions;
 
-namespace VoxInject.Core.Services;
+namespace VoxInject.Providers.AssemblyAI;
 
 /// <summary>
 /// Real-time transcription client for AssemblyAI Streaming API v3.
-/// Endpoint: wss://streaming.assemblyai.com/v3/ws
-/// Protocol: binary audio frames in, JSON messages out.
+/// Endpoint : wss://streaming.assemblyai.com/v3/ws
+/// Protocol : binary audio frames in, JSON messages out.
 /// </summary>
 public sealed class AssemblyAiTranscriptionService : ITranscriptionService
 {
@@ -26,7 +27,7 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
     public event Action<string>? SessionError;
 
     public async Task StartAsync(
-        string   apiKey,
+        IReadOnlyDictionary<string, string> config,
         string   language,
         bool     autoPunctuation,
         string[] wordBoost)
@@ -34,13 +35,15 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
         if (_started)
             throw new InvalidOperationException("Session already started.");
 
+        if (!config.TryGetValue("ApiKey", out var apiKey) || string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("AssemblyAI provider requires an 'ApiKey' config entry.");
+
         var query = BuildQueryString(language, autoPunctuation, wordBoost);
         var uri   = new Uri($"{WssEndpoint}?{query}");
 
         _ws  = new ClientWebSocket();
         _cts = new CancellationTokenSource();
 
-        // Authentication via Authorization header
         _ws.Options.SetRequestHeader("Authorization", apiKey);
 
         await _ws.ConnectAsync(uri, _cts.Token).ConfigureAwait(false);
@@ -53,8 +56,6 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
     {
         if (_ws is null || !_started || _ws.State != WebSocketState.Open) return;
 
-        // ClientWebSocket forbids concurrent sends — drop the chunk if a send
-        // is already in flight rather than queuing (audio is real-time).
         if (!await _sendGate.WaitAsync(0).ConfigureAwait(false))
             return;
         try
@@ -79,31 +80,26 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
         {
             if (_ws.State == WebSocketState.Open)
             {
-                // Send termination message then wait for the server to flush
-                // any remaining transcripts and close the connection.
                 var terminate = """{"type":"Terminate"}""";
                 var bytes     = Encoding.UTF8.GetBytes(terminate);
                 await _ws.SendAsync(bytes, WebSocketMessageType.Text, true,
                     CancellationToken.None).ConfigureAwait(false);
 
-                // Wait up to 1 s for the server to send end_of_turn transcripts
                 await Task.Delay(1000).ConfigureAwait(false);
             }
-            else { /* socket already closed, nothing to send */ }
         }
-        catch { /* ignore send errors during shutdown */ }
+        catch { }
         finally
         {
             await CleanupAsync().ConfigureAwait(false);
         }
     }
 
-    // ── Receive loop ─────────────────────────────────────────────────────────
+    // ── Receive loop ──────────────────────────────────────────────────────────
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
         var buffer = new byte[8192];
-
         try
         {
             while (!ct.IsCancellationRequested && _ws?.State == WebSocketState.Open)
@@ -120,15 +116,11 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
                 }
                 while (!result.EndOfMessage);
 
-                var json = Encoding.UTF8.GetString(ms.ToArray());
-                HandleMessage(json);
+                HandleMessage(Encoding.UTF8.GetString(ms.ToArray()));
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            SessionError?.Invoke(ex.Message);
-        }
+        catch (Exception ex) { SessionError?.Invoke(ex.Message); }
     }
 
     private void HandleMessage(string json)
@@ -145,22 +137,15 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
 
                 if (string.IsNullOrWhiteSpace(transcript)) return;
 
-                if (endOfTurn)
-                    FinalTranscript?.Invoke(transcript);
-                else
-                    PartialTranscript?.Invoke(transcript);
+                if (endOfTurn) FinalTranscript?.Invoke(transcript);
+                else           PartialTranscript?.Invoke(transcript);
             }
             else if (type == "Error")
             {
-                var msg = node?["error"]?.GetValue<string>() ?? json;
-                SessionError?.Invoke(msg);
+                SessionError?.Invoke(node?["error"]?.GetValue<string>() ?? json);
             }
-            // SessionBegins and Termination are informational — no action needed
         }
-        catch (JsonException)
-        {
-            // Malformed message — skip silently
-        }
+        catch (JsonException) { }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -173,7 +158,6 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
             "sample_rate=16000"
         };
 
-        // Map language codes to AssemblyAI speech_model
         var model = language.StartsWith("en", StringComparison.OrdinalIgnoreCase)
             ? "universal-streaming-english"
             : "universal-streaming-multilingual";

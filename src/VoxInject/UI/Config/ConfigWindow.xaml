@@ -27,13 +27,16 @@
             <!-- ┌─ API ────────────────────────────────────────────────────┐ -->
             <TabItem Header="API">
                 <StackPanel Margin="4,20">
-                    <TextBlock Text="ASSEMBLYAI"
+                    <TextBlock Text="FOURNISSEUR"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
                                Margin="0,0,0,10"/>
-                    <TextBlock Text="Clé API" FontSize="12" Opacity="0.7"
-                               Margin="0,0,0,4"/>
-                    <ui:PasswordBox x:Name="ApiKeyBox"
-                                    PlaceholderText="sk-••••••••••••••••"/>
+                    <ComboBox x:Name="ProviderCombo"
+                              HorizontalAlignment="Stretch"
+                              Margin="0,0,0,20"
+                              SelectionChanged="ProviderCombo_SelectionChanged"/>
+
+                    <!-- Dynamic fields injected in code-behind -->
+                    <StackPanel x:Name="ProviderFieldsPanel"/>
                 </StackPanel>
             </TabItem>
 

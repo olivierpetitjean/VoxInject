@@ -4,14 +4,16 @@ using System.Windows.Input;
 using NAudio.Wave;
 using VoxInject.Core.Models;
 using VoxInject.Core.Services;
+using VoxInject.Providers.Abstractions;
 using Wpf.Ui.Controls;
 
 namespace VoxInject.UI.Config;
 
 public partial class ConfigWindow : FluentWindow
 {
-    private readonly ISettingsService _settingsService;
-    private readonly ISecretStore     _secrets;
+    private readonly ISettingsService                      _settingsService;
+    private readonly ISecretStore                          _secrets;
+    private readonly IReadOnlyList<ITranscriptionProvider> _providers;
 
     private AppSettings   _settings;
     private List<Profile> _profiles;
@@ -21,10 +23,14 @@ public partial class ConfigWindow : FluentWindow
     private uint _capturedModifiers;
     private uint _capturedVk;
 
-    public ConfigWindow(ISettingsService settingsService, ISecretStore secrets)
+    public ConfigWindow(
+        ISettingsService                      settingsService,
+        ISecretStore                          secrets,
+        IReadOnlyList<ITranscriptionProvider> providers)
     {
         _settingsService = settingsService;
         _secrets         = secrets;
+        _providers       = providers;
         _settings        = settingsService.Current;
         _profiles        = [.._settings.Profiles];
 
@@ -34,20 +40,110 @@ public partial class ConfigWindow : FluentWindow
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        LoadApiKey();
+        PopulateProviders();
         PopulateMicrophones();
         PopulateProfiles();
         LoadGlobalSettings();
     }
 
-    // ── API Key ──────────────────────────────────────────────────────────────
+    // ── Provider / API ───────────────────────────────────────────────────────
 
-    private void LoadApiKey()
+    private void PopulateProviders()
     {
-        var key = _secrets.Load("assemblyai-apikey");
-        if (!string.IsNullOrEmpty(key))
-            ApiKeyBox.Password = key;
+        ProviderCombo.Items.Clear();
+        foreach (var p in _providers)
+            ProviderCombo.Items.Add(new ComboBoxItem { Content = p.DisplayName, Tag = p.Id });
+
+        // Select active provider
+        SelectComboByTag(ProviderCombo, _settings.ActiveProviderId);
+        if (ProviderCombo.SelectedIndex < 0 && ProviderCombo.Items.Count > 0)
+            ProviderCombo.SelectedIndex = 0;
+
+        RenderProviderFields();
     }
+
+    private void ProviderCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => RenderProviderFields();
+
+    private void RenderProviderFields()
+    {
+        ProviderFieldsPanel.Children.Clear();
+        var providerId = (ProviderCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        var provider   = _providers.FirstOrDefault(p => p.Id == providerId);
+        if (provider is null) return;
+
+        foreach (var field in provider.ConfigFields)
+        {
+            var label = new System.Windows.Controls.TextBlock
+            {
+                Text       = field.Label,
+                FontSize   = 12,
+                Opacity    = 0.7,
+                Margin     = new Thickness(0, 0, 0, 4)
+            };
+            ProviderFieldsPanel.Children.Add(label);
+
+            if (field.Type == ProviderFieldType.Password)
+            {
+                var secret = _secrets.Load($"{provider.Id}.{field.Key}") ?? string.Empty;
+                var box = new Wpf.Ui.Controls.PasswordBox
+                {
+                    PlaceholderText = field.Placeholder,
+                    Password        = secret,
+                    Margin          = new Thickness(0, 0, 0, 16),
+                    Tag             = field.Key
+                };
+                ProviderFieldsPanel.Children.Add(box);
+            }
+            else
+            {
+                var textConfigs = _settings.ProviderTextConfigs;
+                var existing    = textConfigs.TryGetValue(provider.Id, out var fd)
+                                  && fd.TryGetValue(field.Key, out var v) ? v : string.Empty;
+                var box = new System.Windows.Controls.TextBox
+                {
+                    Text       = existing,
+                    Margin     = new Thickness(0, 0, 0, 16),
+                    Tag        = field.Key
+                };
+                ProviderFieldsPanel.Children.Add(box);
+            }
+        }
+    }
+
+    private void SaveProviderFields()
+    {
+        var providerId = (ProviderCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        var provider   = _providers.FirstOrDefault(p => p.Id == providerId);
+        if (provider is null) return;
+
+        var textFields = new Dictionary<string, string>();
+
+        foreach (var field in provider.ConfigFields)
+        {
+            // Find matching control by Tag
+            var control = ProviderFieldsPanel.Children
+                .OfType<FrameworkElement>()
+                .FirstOrDefault(c => c.Tag?.ToString() == field.Key);
+
+            if (field.Type == ProviderFieldType.Password
+                && control is Wpf.Ui.Controls.PasswordBox pb)
+            {
+                if (!string.IsNullOrEmpty(pb.Password))
+                    _secrets.Save($"{provider.Id}.{field.Key}", pb.Password);
+            }
+            else if (control is System.Windows.Controls.TextBox tb)
+            {
+                textFields[field.Key] = tb.Text;
+            }
+        }
+
+        // Merge back into settings (done in Save_Click)
+        _pendingProviderTextFields = (providerId!, textFields);
+    }
+
+    // Temporary holder filled by SaveProviderFields(), applied in Save_Click
+    private (string ProviderId, Dictionary<string, string> Fields)? _pendingProviderTextFields;
 
     // ── Microphone ───────────────────────────────────────────────────────────
 
@@ -229,9 +325,7 @@ public partial class ConfigWindow : FluentWindow
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        var apiKey = ApiKeyBox.Password;
-        if (!string.IsNullOrWhiteSpace(apiKey))
-            _secrets.Save("assemblyai-apikey", apiKey);
+        SaveProviderFields();
 
         // Save active profile edits back to list
         if (_activeProfile != null)
@@ -253,14 +347,36 @@ public partial class ConfigWindow : FluentWindow
                                     (ScreenCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "ActiveScreen"),
             OverlayOpacity    = OpacitySlider.Value,
             OverlaySize       = (int)SizeSlider.Value,
-            ToneEnabled       = ToneCheck.IsChecked == true,
-            ToneVolume        = ToneVolumeSlider.Value,
-            AutoStartWithWindows = AutoStartCheck.IsChecked == true
+            ToneEnabled          = ToneCheck.IsChecked == true,
+            ToneVolume           = ToneVolumeSlider.Value,
+            AutoStartWithWindows = AutoStartCheck.IsChecked == true,
+            ActiveProviderId     = (ProviderCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString()
+                                   ?? _settings.ActiveProviderId,
+            ProviderTextConfigs  = BuildProviderTextConfigs()
         };
 
         _settingsService.Save(newSettings);
         ApplyAutoStart(newSettings.AutoStartWithWindows);
         Close();
+    }
+
+    private Dictionary<string, Dictionary<string, string>> BuildProviderTextConfigs()
+    {
+        // Start from existing config and overlay the pending save
+        var result = new Dictionary<string, Dictionary<string, string>>(
+            _settings.ProviderTextConfigs.Select(kv =>
+                KeyValuePair.Create(kv.Key, new Dictionary<string, string>(kv.Value))));
+
+        if (_pendingProviderTextFields.HasValue)
+        {
+            var (pid, fields) = _pendingProviderTextFields.Value;
+            if (!result.TryGetValue(pid, out var existing))
+                result[pid] = existing = [];
+            foreach (var (k, v) in fields)
+                existing[k] = v;
+        }
+
+        return result;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();

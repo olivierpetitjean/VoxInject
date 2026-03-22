@@ -23,6 +23,27 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\VoxInject.Providers.Abstractions\VoxInject.Providers.Abstractions.csproj"/>
+  </ItemGroup>
+
+  <!-- Copy the AssemblyAI plugin DLL to plugins/ after build -->
+  <Target Name="CopyPlugins" AfterTargets="Build">
+    <MSBuild Projects="..\VoxInject.Providers.AssemblyAI\VoxInject.Providers.AssemblyAI.csproj"
+             Properties="Configuration=$(Configuration);Platform=AnyCPU"/>
+    <PropertyGroup>
+      <_PluginOut>..\VoxInject.Providers.AssemblyAI\bin\$(Configuration)\net8.0</_PluginOut>
+      <_PluginsDir>$(OutputPath)plugins\</_PluginsDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_PluginsDir)"/>
+    <Copy SourceFiles="$(_PluginOut)\VoxInject.Providers.AssemblyAI.dll"
+          DestinationFolder="$(_PluginsDir)"
+          SkipUnchangedFiles="true"/>
+    <Copy SourceFiles="$(_PluginOut)\VoxInject.Providers.Abstractions.dll"
+          DestinationFolder="$(_PluginsDir)"
+          SkipUnchangedFiles="true"/>
+  </Target>
+
+  <ItemGroup>
     <!-- Embedded as WPF Resource so pack:// URIs work at runtime -->
     <Resource Include="Assets\app.ico" />
   </ItemGroup>

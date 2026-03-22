@@ -2,6 +2,7 @@ using VoxInject.Core.Models;
 using VoxInject.Core.Services;
 using VoxInject.Diagnostics;
 using VoxInject.Infrastructure.Win32;
+using VoxInject.Providers.Abstractions;
 using VoxInject.UI.Overlay;
 
 namespace VoxInject.Core.State;
@@ -15,6 +16,7 @@ public sealed class VoxController : IDisposable
     private readonly ISettingsService              _settings;
     private readonly ISecretStore                  _secrets;
     private readonly OverlayWindow                 _overlay;
+    private readonly IReadOnlyList<ITranscriptionProvider> _providers;
     private readonly FocusTracker                  _focus   = new();
     private readonly AudioCaptureService           _audio   = new();
     private readonly NaudioToneService             _tone    = new();
@@ -40,13 +42,15 @@ public sealed class VoxController : IDisposable
     public event Action<string>? Error;
 
     public VoxController(
-        ISettingsService settings,
-        ISecretStore     secrets,
-        OverlayWindow    overlay)
+        ISettingsService                  settings,
+        ISecretStore                      secrets,
+        OverlayWindow                     overlay,
+        IReadOnlyList<ITranscriptionProvider> providers)
     {
-        _settings = settings;
-        _secrets  = secrets;
-        _overlay  = overlay;
+        _settings  = settings;
+        _secrets   = secrets;
+        _overlay   = overlay;
+        _providers = providers;
     }
 
     // ── Hotkey entry points ───────────────────────────────────────────────────
@@ -92,10 +96,31 @@ public sealed class VoxController : IDisposable
         {
             if (_state != VoxState.Idle) return;
 
-            var apiKey = _secrets.Load("assemblyai-apikey");
-            if (string.IsNullOrWhiteSpace(apiKey))
+            // Resolve active provider
+            var s        = _settings.Current;
+            var provider = _providers.FirstOrDefault(p => p.Id == s.ActiveProviderId)
+                           ?? _providers.FirstOrDefault();
+
+            if (provider is null)
             {
-                Error?.Invoke("No API key configured — open Settings.");
+                Error?.Invoke("Aucun provider de transcription chargé — vérifiez le dossier plugins/.");
+                return;
+            }
+
+            // Build provider config: text fields from settings, password fields from secret store
+            var config = new Dictionary<string, string>();
+            if (s.ProviderTextConfigs.TryGetValue(provider.Id, out var textFields))
+                foreach (var (k, v) in textFields) config[k] = v;
+
+            foreach (var field in provider.ConfigFields.Where(f => f.Type == ProviderFieldType.Password))
+            {
+                var secret = _secrets.Load($"{provider.Id}.{field.Key}");
+                if (!string.IsNullOrEmpty(secret)) config[field.Key] = secret;
+            }
+
+            if (!config.Any(kv => !string.IsNullOrWhiteSpace(kv.Value)))
+            {
+                Error?.Invoke("Aucune clé API configurée — ouvrez les Paramètres.");
                 return;
             }
 
@@ -106,20 +131,20 @@ public sealed class VoxController : IDisposable
             _transcriptionDone      = false;
 
             FileLogger.Reset();
-            FileLogger.Log($"Session start — AutoEnterOnSilence={profile.AutoEnterOnSilence} SilenceTimeoutMs={profile.SilenceTimeoutMs} ThresholdDb={profile.SilenceThresholdDb}");
+            FileLogger.Log($"Session start — provider={provider.Id} AutoEnterOnSilence={profile.AutoEnterOnSilence} SilenceTimeoutMs={profile.SilenceTimeoutMs} ThresholdDb={profile.SilenceThresholdDb}");
 
-            if (_settings.Current.ToneEnabled)
-                _tone.PlayActivation(_settings.Current.ToneVolume);
+            if (s.ToneEnabled)
+                _tone.PlayActivation(s.ToneVolume);
 
             _overlay.Dispatcher.Invoke(() => _overlay.ShowForState(VoxState.Listening));
 
-            _transcription = new AssemblyAiTranscriptionService();
+            _transcription = provider.CreateService();
             _transcription.PartialTranscript += OnPartialTranscript;
             _transcription.FinalTranscript   += OnFinalTranscript;
             _transcription.SessionError      += OnSessionError;
 
             await _transcription.StartAsync(
-                apiKey,
+                config,
                 profile.Language,
                 profile.AutoPunctuation,
                 profile.VocabularyBoost).ConfigureAwait(false);

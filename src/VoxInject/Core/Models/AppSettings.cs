@@ -19,5 +19,14 @@ public sealed record AppSettings
 
     public bool AutoStartWithWindows { get; init; } = false;
 
-    // NOTE: API key is NOT stored here. It is stored encrypted via DPAPI.
+    // ── Provider plugin ────────────────────────────────────────────────────────
+    /// <summary>Id of the active transcription provider (matches ITranscriptionProvider.Id).</summary>
+    public string ActiveProviderId { get; init; } = "assemblyai";
+
+    /// <summary>
+    /// Non-sensitive provider config values, keyed by provider id then field key.
+    /// Sensitive fields (ProviderFieldType.Password) are stored via ISecretStore
+    /// with key "{providerId}.{fieldKey}".
+    /// </summary>
+    public Dictionary<string, Dictionary<string, string>> ProviderTextConfigs { get; init; } = [];
 }

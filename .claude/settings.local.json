@@ -18,7 +18,12 @@
       "WebFetch(domain:assemblyai.com)",
       "Bash(dotnet remove:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "WebSearch",
+      "Bash(grep -E \"\\\\.\\(xaml|cs\\)$\")",
+      "Bash(dotnet package:*)",
+      "Bash(dotnet restore:*)"
     ]
   }
 }

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>VoxInject.Providers.AssemblyAI</AssemblyName>
+    <RootNamespace>VoxInject.Providers.AssemblyAI</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VoxInject.Providers.Abstractions\VoxInject.Providers.Abstractions.csproj"/>
+  </ItemGroup>
+
+</Project>
