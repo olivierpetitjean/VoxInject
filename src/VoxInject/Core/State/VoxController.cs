@@ -30,6 +30,13 @@ public sealed class VoxController : IDisposable
     private volatile bool          _silenceLocal;       // true = local silence detected
     private volatile bool          _transcriptionDone;  // true = end_of_turn received, waiting for silence
 
+    // ── VAD gate ──────────────────────────────────────────────────────────────
+    // Keeps the WebSocket open but only forwards audio while voice is active.
+    // State: Idle ──[level ≥ threshold]──► Listening ──[timeout]──► Idle
+    private volatile bool _vadStreaming;    // true = voice detected, sending audio to API
+    private long          _vadSilenceSince; // TickCount64 when level first dropped below threshold
+    private int           _silenceTimeoutMs;
+
     public event Action<string>? Error;
 
     public VoxController(
@@ -122,11 +129,15 @@ public sealed class VoxController : IDisposable
             _audio.SilenceDetected += OnSilenceDetected;
             _audio.CaptureFailed   += OnCaptureFailed;
 
-            _silenceThresholdDb = profile.SilenceThresholdDb;
+            _silenceThresholdDb  = profile.SilenceThresholdDb;
+            _silenceTimeoutMs    = profile.SilenceTimeoutMs;
+            _vadStreaming         = false;
+            _vadSilenceSince     = 0;
+
             _audio.Start(
                 profile.MicrophoneDeviceId,
                 profile.SilenceThresholdDb,
-                profile.AutoEnterOnSilence ? profile.SilenceTimeoutMs : int.MaxValue);
+                profile.SilenceTimeoutMs);
         }
         catch (Exception ex)
         {
@@ -197,14 +208,35 @@ public sealed class VoxController : IDisposable
     // ── Event handlers ────────────────────────────────────────────────────────
 
     private void OnAudioChunk(byte[] chunk)
-        => _ = _transcription?.SendAudioAsync(chunk);
+    {
+        if (_vadStreaming)
+            _ = _transcription?.SendAudioAsync(chunk);
+    }
 
     private void OnLevelChanged(double db)
     {
         _overlay.SetAudioLevel(db);
         var speaking = db >= _silenceThresholdDb;
         _overlay.SetSpeaking(speaking);
-        if (speaking) _silenceLocal = false;
+
+        if (speaking)
+        {
+            // Voice detected — open gate, reset silence timer
+            _vadStreaming    = true;
+            _vadSilenceSince = 0;
+            _silenceLocal    = false;
+        }
+        else if (_vadStreaming)
+        {
+            // Below threshold while gate is open — start / check timeout
+            if (_vadSilenceSince == 0)
+                _vadSilenceSince = Environment.TickCount64;
+            else if (Environment.TickCount64 - _vadSilenceSince >= _silenceTimeoutMs)
+            {
+                _vadStreaming    = false;
+                _vadSilenceSince = 0;
+            }
+        }
     }
 
     private void OnSilenceDetected()
