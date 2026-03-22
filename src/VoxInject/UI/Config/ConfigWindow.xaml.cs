@@ -31,6 +31,8 @@ public partial class ConfigWindow : Window
         Loaded += OnLoaded;
     }
 
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => DragMove();
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         LoadApiKey();
@@ -125,6 +127,7 @@ public partial class ConfigWindow : Window
         SilenceBox.Text          = p.SilenceTimeoutMs.ToString();
         SelectComboByTag(EnterKeyCombo, p.UseShiftEnter ? "ShiftEnter" : "Enter");
         SilencePanel.IsEnabled   = p.AutoEnterOnSilence;
+        SilencePanel.Opacity     = p.AutoEnterOnSilence ? 1.0 : 0.4;
     }
 
     private Profile ReadProfileFields(string name) => new Profile
@@ -175,7 +178,9 @@ public partial class ConfigWindow : Window
 
     private void AutoEnterCheck_Changed(object sender, RoutedEventArgs e)
     {
-        SilencePanel.IsEnabled = AutoEnterCheck.IsChecked == true;
+        var enabled          = AutoEnterCheck.IsChecked == true;
+        SilencePanel.IsEnabled = enabled;
+        SilencePanel.Opacity   = enabled ? 1.0 : 0.4;
     }
 
     // ── Global settings ───────────────────────────────────────────────────────
