@@ -22,10 +22,10 @@
                      ShowMinimize="False"/>
 
         <!-- ── Tabs ────────────────────────────────────────────────────────── -->
-        <TabControl Grid.Row="1" Margin="0">
+        <TabControl Grid.Row="1" Margin="0,4,0,0">
 
             <!-- ┌─ API ────────────────────────────────────────────────────┐ -->
-            <TabItem Header="API" Margin="8,0,0,0">
+            <TabItem Header="API" Margin="20,0,0,0">
                 <StackPanel Margin="24,20">
                     <TextBlock Text="ASSEMBLYAI"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
