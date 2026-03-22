@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModernWpfUI" Version="0.9.6" />
+    <PackageReference Include="WPF-UI" Version="4.2.0" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.1.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />

@@ -4,10 +4,11 @@ using System.Windows.Input;
 using NAudio.Wave;
 using VoxInject.Core.Models;
 using VoxInject.Core.Services;
+using Wpf.Ui.Controls;
 
 namespace VoxInject.UI.Config;
 
-public partial class ConfigWindow : Window
+public partial class ConfigWindow : FluentWindow
 {
     private readonly ISettingsService _settingsService;
     private readonly ISecretStore     _secrets;
@@ -31,8 +32,6 @@ public partial class ConfigWindow : Window
         Loaded += OnLoaded;
     }
 
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => DragMove();
-
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         LoadApiKey();
@@ -41,27 +40,13 @@ public partial class ConfigWindow : Window
         LoadGlobalSettings();
     }
 
-    // ── API Key ─────────────────────────────────────────────────────────────
+    // ── API Key ──────────────────────────────────────────────────────────────
 
     private void LoadApiKey()
     {
         var key = _secrets.Load("assemblyai-apikey");
         if (!string.IsNullOrEmpty(key))
             ApiKeyBox.Password = key;
-    }
-
-    private void RevealToggle_Checked(object sender, RoutedEventArgs e)
-    {
-        ApiKeyPlain.Text       = ApiKeyBox.Password;
-        ApiKeyBox.Visibility   = Visibility.Collapsed;
-        ApiKeyPlain.Visibility = Visibility.Visible;
-    }
-
-    private void RevealToggle_Unchecked(object sender, RoutedEventArgs e)
-    {
-        ApiKeyBox.Password     = ApiKeyPlain.Text;
-        ApiKeyPlain.Visibility = Visibility.Collapsed;
-        ApiKeyBox.Visibility   = Visibility.Visible;
     }
 
     // ── Microphone ───────────────────────────────────────────────────────────
@@ -90,8 +75,8 @@ public partial class ConfigWindow : Window
         MessageBox.Show(
             "Microphone test: speak now — feature coming in next build.",
             "VoxInject",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+            System.Windows.MessageBoxButton.OK,
+            System.Windows.MessageBoxImage.Information);
     }
 
     // ── Profiles ─────────────────────────────────────────────────────────────
@@ -116,9 +101,9 @@ public partial class ConfigWindow : Window
 
     private void LoadProfileFields(Profile p)
     {
-        LanguageBox.Text  = p.Language;
-        VocabBoostBox.Text = string.Join(", ", p.VocabularyBoost);
-        AutoPunctCheck.IsChecked = p.AutoPunctuation;
+        LanguageBox.Text           = p.Language;
+        VocabBoostBox.Text         = string.Join(", ", p.VocabularyBoost);
+        AutoPunctCheck.IsChecked   = p.AutoPunctuation;
 
         SelectComboByTag(RecordModeCombo, p.Mode.ToString());
         SelectComboByTag(MicCombo, p.MicrophoneDeviceId);
@@ -178,7 +163,7 @@ public partial class ConfigWindow : Window
 
     private void AutoEnterCheck_Changed(object sender, RoutedEventArgs e)
     {
-        var enabled          = AutoEnterCheck.IsChecked == true;
+        var enabled            = AutoEnterCheck.IsChecked == true;
         SilencePanel.IsEnabled = enabled;
         SilencePanel.Opacity   = enabled ? 1.0 : 0.4;
     }
@@ -189,10 +174,10 @@ public partial class ConfigWindow : Window
     {
         SelectComboByTag(CornerCombo,  _settings.OverlayCorner.ToString());
         SelectComboByTag(ScreenCombo,  _settings.OverlayScreen.ToString());
-        OpacitySlider.Value  = _settings.OverlayOpacity;
-        SizeSlider.Value     = _settings.OverlaySize;
-        ToneCheck.IsChecked  = _settings.ToneEnabled;
-        ToneVolumeSlider.Value = _settings.ToneVolume;
+        OpacitySlider.Value      = _settings.OverlayOpacity;
+        SizeSlider.Value         = _settings.OverlaySize;
+        ToneCheck.IsChecked      = _settings.ToneEnabled;
+        ToneVolumeSlider.Value   = _settings.ToneVolume;
         AutoStartCheck.IsChecked = _settings.AutoStartWithWindows;
 
         // Hotkey display
@@ -221,9 +206,9 @@ public partial class ConfigWindow : Window
             return;
 
         uint mods = 0;
-        if (Keyboard.IsKeyDown(Key.LeftCtrl)  || Keyboard.IsKeyDown(Key.RightCtrl))  mods |= 0x0002; // MOD_CTRL
-        if (Keyboard.IsKeyDown(Key.LeftAlt)   || Keyboard.IsKeyDown(Key.RightAlt))   mods |= 0x0001; // MOD_ALT
-        if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift)) mods |= 0x0004; // MOD_SHIFT
+        if (Keyboard.IsKeyDown(Key.LeftCtrl)  || Keyboard.IsKeyDown(Key.RightCtrl))  mods |= 0x0002;
+        if (Keyboard.IsKeyDown(Key.LeftAlt)   || Keyboard.IsKeyDown(Key.RightAlt))   mods |= 0x0001;
+        if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift)) mods |= 0x0004;
 
         _capturedModifiers = mods;
         _capturedVk        = (uint)KeyInterop.VirtualKeyFromKey(key);
@@ -244,8 +229,7 @@ public partial class ConfigWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        // Persist API key securely
-        var apiKey = RevealToggle.IsChecked == true ? ApiKeyPlain.Text : ApiKeyBox.Password;
+        var apiKey = ApiKeyBox.Password;
         if (!string.IsNullOrWhiteSpace(apiKey))
             _secrets.Save("assemblyai-apikey", apiKey);
 

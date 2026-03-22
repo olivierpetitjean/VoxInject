@@ -3,7 +3,7 @@ using System.Windows.Input;
 
 namespace VoxInject.UI.Config;
 
-public partial class ProfileNameDialog : Window
+public partial class ProfileNameDialog : Wpf.Ui.Controls.FluentWindow
 {
     public string ProfileName => NameBox.Text.Trim();
 
