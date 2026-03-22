@@ -1,0 +1,246 @@
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace VoxInject.Core.Services;
+
+/// <summary>
+/// Real-time transcription client for AssemblyAI Streaming API v3.
+/// Endpoint: wss://streaming.assemblyai.com/v3/ws
+/// Protocol: binary audio frames in, JSON messages out.
+/// </summary>
+public sealed class AssemblyAiTranscriptionService : ITranscriptionService
+{
+    private const string WssEndpoint = "wss://streaming.assemblyai.com/v3/ws";
+
+    private ClientWebSocket?         _ws;
+    private CancellationTokenSource? _cts;
+    private Task?                    _receiveLoop;
+    private bool                     _started;
+    // ClientWebSocket only allows one SendAsync at a time; drop chunks if busy.
+    private readonly SemaphoreSlim   _sendGate = new(1, 1);
+
+    public event Action<string>? PartialTranscript;
+    public event Action<string>? FinalTranscript;
+    public event Action<string>? SessionError;
+
+    public async Task StartAsync(
+        string   apiKey,
+        string   language,
+        bool     autoPunctuation,
+        string[] wordBoost)
+    {
+        if (_started)
+            throw new InvalidOperationException("Session already started.");
+
+        var query = BuildQueryString(language, wordBoost);
+        var uri   = new Uri($"{WssEndpoint}?{query}");
+
+        _ws  = new ClientWebSocket();
+        _cts = new CancellationTokenSource();
+
+        // Authentication via Authorization header
+        _ws.Options.SetRequestHeader("Authorization", apiKey);
+
+        Diagnostics.FileLogger.Log($"AssemblyAI — connecting to {uri}");
+        await _ws.ConnectAsync(uri, _cts.Token).ConfigureAwait(false);
+        Diagnostics.FileLogger.Log("AssemblyAI — WebSocket open");
+
+        _started     = true;
+        _receiveLoop = Task.Run(() => ReceiveLoopAsync(_cts.Token), _cts.Token);
+    }
+
+    public async Task SendAudioAsync(byte[] pcm16Chunk)
+    {
+        if (_ws is null || !_started || _ws.State != WebSocketState.Open) return;
+
+        // ClientWebSocket forbids concurrent sends — drop the chunk if a send
+        // is already in flight rather than queuing (audio is real-time).
+        if (!await _sendGate.WaitAsync(0).ConfigureAwait(false))
+        {
+            Diagnostics.FileLogger.Log("AssemblyAI — SendAudio: dropped chunk (send busy)");
+            return;
+        }
+        try
+        {
+            if (_ws.State != WebSocketState.Open) return;
+            var t0 = Environment.TickCount64;
+            await _ws.SendAsync(
+                new ArraySegment<byte>(pcm16Chunk),
+                WebSocketMessageType.Binary,
+                endOfMessage: true,
+                _cts!.Token).ConfigureAwait(false);
+            Diagnostics.FileLogger.Log($"AssemblyAI — SendAudio: sent {pcm16Chunk.Length} bytes in {Environment.TickCount64 - t0} ms");
+        }
+        finally
+        {
+            _sendGate.Release();
+        }
+    }
+
+    public async Task StopAsync()
+    {
+        if (_ws is null) return;
+        try
+        {
+            if (_ws.State == WebSocketState.Open)
+            {
+                // Send termination message then wait for the server to flush
+                // any remaining transcripts and close the connection.
+                var terminate = """{"type":"Terminate"}""";
+                var bytes     = Encoding.UTF8.GetBytes(terminate);
+                Diagnostics.FileLogger.Log("AssemblyAI — sending Terminate");
+                await _ws.SendAsync(bytes, WebSocketMessageType.Text, true,
+                    CancellationToken.None).ConfigureAwait(false);
+
+                // Wait up to 1 s for the server to send end_of_turn transcripts
+                await Task.Delay(1000).ConfigureAwait(false);
+            }
+            else
+            {
+                Diagnostics.FileLogger.Log($"AssemblyAI — StopAsync: ws state={_ws.State}, skipping Terminate");
+            }
+        }
+        catch { /* ignore send errors during shutdown */ }
+        finally
+        {
+            await CleanupAsync().ConfigureAwait(false);
+        }
+    }
+
+    // ── Receive loop ─────────────────────────────────────────────────────────
+
+    private async Task ReceiveLoopAsync(CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+
+        try
+        {
+            while (!ct.IsCancellationRequested && _ws?.State == WebSocketState.Open)
+            {
+                using var ms = new System.IO.MemoryStream();
+                WebSocketReceiveResult result;
+
+                do
+                {
+                    result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        Diagnostics.FileLogger.Log($"AssemblyAI — server closed: {result.CloseStatus} — {result.CloseStatusDescription}");
+                        return;
+                    }
+                    ms.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                var json = Encoding.UTF8.GetString(ms.ToArray());
+                HandleMessage(json);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Diagnostics.FileLogger.Log("AssemblyAI — receive loop cancelled");
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.FileLogger.Log($"AssemblyAI — receive loop EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            SessionError?.Invoke(ex.Message);
+        }
+        finally
+        {
+            Diagnostics.FileLogger.Log($"AssemblyAI — receive loop exited. ws state={_ws?.State}");
+        }
+    }
+
+    private void HandleMessage(string json)
+    {
+        Diagnostics.FileLogger.Log($"AssemblyAI ← {json[..Math.Min(json.Length, 200)]}");
+        try
+        {
+            var node = JsonNode.Parse(json);
+            var type = node?["type"]?.GetValue<string>();
+
+            if (type == "Turn")
+            {
+                var transcript = node?["transcript"]?.GetValue<string>() ?? string.Empty;
+                var endOfTurn  = node?["end_of_turn"]?.GetValue<bool>() ?? false;
+
+                if (string.IsNullOrWhiteSpace(transcript)) return;
+
+                if (endOfTurn)
+                    FinalTranscript?.Invoke(transcript);
+                else
+                    PartialTranscript?.Invoke(transcript);
+            }
+            else if (type == "Error")
+            {
+                var msg = node?["error"]?.GetValue<string>() ?? json;
+                Diagnostics.FileLogger.Log($"AssemblyAI error: {msg}");
+                SessionError?.Invoke(msg);
+            }
+            // SessionBegins and Termination are informational — no action needed
+        }
+        catch (JsonException)
+        {
+            // Malformed message — skip silently
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static string BuildQueryString(string language, string[] wordBoost)
+    {
+        var parts = new List<string>
+        {
+            "encoding=pcm_s16le",
+            "sample_rate=16000"
+        };
+
+        // Map language codes to AssemblyAI speech_model
+        var model = language.StartsWith("en", StringComparison.OrdinalIgnoreCase)
+            ? "universal-streaming-english"
+            : "universal-streaming-multilingual";
+
+        parts.Add($"speech_model={Uri.EscapeDataString(model)}");
+
+        if (wordBoost.Length > 0)
+        {
+            var terms = string.Join(",", wordBoost.Select(Uri.EscapeDataString));
+            parts.Add($"keyterms_prompt={terms}");
+        }
+
+        return string.Join("&", parts);
+    }
+
+    private async Task CleanupAsync()
+    {
+        _started = false;
+        _cts?.Cancel();
+
+        if (_receiveLoop != null)
+        {
+            try { await _receiveLoop.ConfigureAwait(false); }
+            catch { }
+        }
+
+        try
+        {
+            if (_ws?.State == WebSocketState.Open)
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done",
+                    cts.Token).ConfigureAwait(false);
+            }
+        }
+        catch { }
+
+        _ws?.Dispose();
+        _cts?.Dispose();
+        _ws          = null;
+        _cts         = null;
+        _receiveLoop = null;
+    }
+
+    public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
+}

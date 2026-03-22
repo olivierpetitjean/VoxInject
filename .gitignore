@@ -1,0 +1,33 @@
+# Build outputs
+bin/
+obj/
+out/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# NuGet
+*.nupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime secrets — NEVER commit these
+*.bin
+appsettings.*.json
+secrets.json
+
+# User-specific settings
+launchSettings.json

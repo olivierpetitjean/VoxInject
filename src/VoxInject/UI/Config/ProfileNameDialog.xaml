@@ -1,0 +1,26 @@
+<Window x:Class="VoxInject.UI.Config.ProfileNameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="New profile"
+        Width="300" SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner">
+    <ui:SimpleStackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Profile name" Opacity="0.6" FontSize="12"/>
+        <TextBox x:Name="NameBox" KeyDown="NameBox_KeyDown"/>
+        <Grid Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="1" Content="Cancel" Margin="0,0,8,0"
+                    Click="Cancel_Click"/>
+            <Button Grid.Column="2" Content="Create"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Click="Ok_Click" IsDefault="True"/>
+        </Grid>
+    </ui:SimpleStackPanel>
+</Window>

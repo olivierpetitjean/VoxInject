@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet --version)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet new:*)",
+      "Bash(mkdir -p src/VoxInject tests/VoxInject.Tests)",
+      "Bash(dotnet sln:*)",
+      "Bash(dotnet add:*)",
+      "Bash(xargs grep:*)",
+      "Bash(find /c/repos/VoxInject -name *.csproj -exec cat {})",
+      "Bash(2)",
+      "WebFetch(domain:www.assemblyai.com)",
+      "WebFetch(domain:assemblyai.github.io)",
+      "WebFetch(domain:github.com)",
+      "Bash(dotnet build:*)",
+      "Bash(powershell -Command \"[System.Reflection.Assembly]::LoadFile\\(''C:/Users/Dev/.nuget/packages/h.notifyicon.wpf/2.1.0/lib/net8.0-windows7.0/H.NotifyIcon.Wpf.dll''\\) | Out-Null; [System.Reflection.Assembly]::LoadFile\\(''C:/Users/Dev/.nuget/packages/h.notifyicon/2.1.0/lib/net8.0/H.NotifyIcon.dll''\\) | Out-Null; [H.NotifyIcon.TaskbarIcon].GetMethods\\(\\) | Where-Object { $_.Name -match ''Balloon|Notif|Show'' } | ForEach-Object { $_.ToString\\(\\) }\")",
+      "WebFetch(domain:assemblyai.com)",
+      "Bash(dotnet remove:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
