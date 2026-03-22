@@ -32,6 +32,11 @@ public sealed class VoxController : IDisposable
     private volatile bool          _silenceLocal;       // true = local silence detected
     private volatile bool          _transcriptionDone;  // true = end_of_turn received, waiting for silence
 
+    // ── Error guard ───────────────────────────────────────────────────────────
+    // Prevents error-spam: only the first error per session is reported.
+    // Reset to 0 at session start; TriggerSessionError uses CAS to claim it once.
+    private int _errorGuard;
+
     // ── VAD gate ──────────────────────────────────────────────────────────────
     // Keeps the WebSocket open but only forwards audio while voice is active.
     // State: Idle ──[level ≥ threshold]──► Listening ──[timeout]──► Idle
@@ -40,6 +45,8 @@ public sealed class VoxController : IDisposable
     private int           _silenceTimeoutMs;
 
     public event Action<string>? Error;
+    /// <summary>Fires once a session is fully started (provider connected, audio running).</summary>
+    public event Action? SessionStarted;
 
     public VoxController(
         ISettingsService                  settings,
@@ -129,6 +136,7 @@ public sealed class VoxController : IDisposable
             _needsSpaceBetweenTurns = false;
             _silenceLocal           = false;
             _transcriptionDone      = false;
+            _errorGuard             = 0;
 
             FileLogger.Reset();
             FileLogger.Log($"Session start — provider={provider.Id} AutoEnterOnSilence={profile.AutoEnterOnSilence} SilenceTimeoutMs={profile.SilenceTimeoutMs} ThresholdDb={profile.SilenceThresholdDb}");
@@ -153,6 +161,8 @@ public sealed class VoxController : IDisposable
             _audio.LevelChanged    += OnLevelChanged;
             _audio.SilenceDetected += OnSilenceDetected;
             _audio.CaptureFailed   += OnCaptureFailed;
+
+            SessionStarted?.Invoke();
 
             _silenceThresholdDb  = profile.SilenceThresholdDb;
             _silenceTimeoutMs    = profile.SilenceTimeoutMs;
@@ -332,15 +342,68 @@ public sealed class VoxController : IDisposable
     private void OnSessionError(string error)
     {
         FileLogger.Log($"SessionError: {error}");
-        Error?.Invoke($"AssemblyAI: {error}");
-        _overlay.Dispatcher.Invoke(ResetToIdleUnsafe);
+        TriggerSessionError($"Erreur API : {error}");
     }
 
     private void OnCaptureFailed(string error)
     {
         FileLogger.Log($"CaptureFailed: {error}");
-        Error?.Invoke($"Microphone error: {error}");
-        _overlay.Dispatcher.Invoke(ResetToIdleUnsafe);
+        TriggerSessionError($"Erreur microphone : {error}");
+    }
+
+    /// <summary>
+    /// First error per session wins — subsequent calls are no-ops.
+    /// Fires the Error event once then schedules a full async cleanup.
+    /// </summary>
+    private void TriggerSessionError(string message)
+    {
+        if (Interlocked.CompareExchange(ref _errorGuard, 1, 0) != 0)
+            return; // already handled
+
+        Error?.Invoke(message);
+        _ = Task.Run(EmergencyStopAsync);
+    }
+
+    /// <summary>
+    /// Tears down audio capture and transcription session from any thread.
+    /// Safe to call concurrently — protected by <see cref="_lock"/>.
+    /// </summary>
+    private async Task EmergencyStopAsync()
+    {
+        var acquired = await _lock.WaitAsync(3000).ConfigureAwait(false);
+        try
+        {
+            if (_state == VoxState.Idle) return;
+
+            // Unsubscribe first — prevents further callbacks during teardown
+            _audio.AudioChunkReady -= OnAudioChunk;
+            _audio.LevelChanged    -= OnLevelChanged;
+            _audio.SilenceDetected -= OnSilenceDetected;
+            _audio.CaptureFailed   -= OnCaptureFailed;
+            _audio.Stop();
+
+            if (_transcription is not null)
+            {
+                _transcription.PartialTranscript -= OnPartialTranscript;
+                _transcription.FinalTranscript   -= OnFinalTranscript;
+                _transcription.SessionError      -= OnSessionError;
+                var tx = _transcription;
+                _transcription = null;
+                _ = Task.Run(async () =>
+                {
+                    try { await tx.DisposeAsync().ConfigureAwait(false); } catch { }
+                });
+            }
+
+            _state          = VoxState.Idle;
+            _injectedLength = 0;
+            _focus.Clear();
+            _overlay.Dispatcher.Invoke(() => _overlay.Hide());
+        }
+        finally
+        {
+            if (acquired) _lock.Release();
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

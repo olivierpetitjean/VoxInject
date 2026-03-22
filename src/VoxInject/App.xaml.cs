@@ -38,7 +38,12 @@ public partial class App : Application
 
         _hotkey.HotkeyPressed  += OnHotkeyPressed;
         _hotkey.HotkeyReleased += OnHotkeyReleased;
-        _vox.Error             += msg => _systray?.NotifyError(msg);
+        _vox.Error             += msg =>
+        {
+            _systray?.NotifyError(msg);
+            _systray?.SetWarning(true);
+        };
+        _vox.SessionStarted += () => _systray?.SetWarning(false);
 
         TryRegisterHotkey(_settings.Current.HotkeyModifiers, _settings.Current.HotkeyVk);
 
