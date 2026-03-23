@@ -128,7 +128,7 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
         try
         {
             var node = JsonNode.Parse(json);
-            var type = node?["type"]?.GetValue<string>();
+            var type = node?["type"]?.GetValue<string>() ?? string.Empty;
 
             if (type == "Turn")
             {
@@ -139,11 +139,26 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
 
                 if (endOfTurn) FinalTranscript?.Invoke(transcript);
                 else           PartialTranscript?.Invoke(transcript);
+                return;
             }
-            else if (type == "Error")
+
+            // AssemblyAI may use different type strings and field names for errors
+            // depending on the error category (auth, quota, protocol…)
+            var isErrorType = type.Equals("Error",               StringComparison.OrdinalIgnoreCase)
+                           || type.Equals("AuthenticationError", StringComparison.OrdinalIgnoreCase)
+                           || type.Equals("InvalidSession",      StringComparison.OrdinalIgnoreCase)
+                           || type.Contains("error",             StringComparison.OrdinalIgnoreCase);
+
+            var errorBody = node?["error"]?.GetValue<string>()
+                         ?? node?["message"]?.GetValue<string>();
+
+            if (isErrorType || errorBody is not null)
             {
-                SessionError?.Invoke(node?["error"]?.GetValue<string>() ?? json);
+                SessionError?.Invoke(errorBody ?? $"[{type}] {json}");
+                return;
             }
+
+            // SessionBegins, Termination, etc. — informational, no action needed
         }
         catch (JsonException) { }
     }

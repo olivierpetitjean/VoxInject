@@ -38,12 +38,13 @@ public partial class App : Application
 
         _hotkey.HotkeyPressed  += OnHotkeyPressed;
         _hotkey.HotkeyReleased += OnHotkeyReleased;
-        _vox.Error             += msg =>
+        // Error may fire from any background thread — always dispatch to UI thread
+        _vox.Error          += msg => Dispatcher.BeginInvoke(() =>
         {
             _systray?.NotifyError(msg);
             _systray?.SetWarning(true);
-        };
-        _vox.SessionStarted += () => _systray?.SetWarning(false);
+        });
+        _vox.SessionStarted += ()  => Dispatcher.BeginInvoke(() => _systray?.SetWarning(false));
 
         TryRegisterHotkey(_settings.Current.HotkeyModifiers, _settings.Current.HotkeyVk);
 

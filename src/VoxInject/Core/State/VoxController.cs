@@ -176,7 +176,18 @@ public sealed class VoxController : IDisposable
         }
         catch (Exception ex)
         {
-            Error?.Invoke($"Recording error: {ex.Message}");
+            FileLogger.Log($"StartError: {ex.Message}");
+            // Dispose the transcription service if StartAsync threw
+            if (_transcription is not null)
+            {
+                var tx = _transcription;
+                _transcription = null;
+                tx.PartialTranscript -= OnPartialTranscript;
+                tx.FinalTranscript   -= OnFinalTranscript;
+                tx.SessionError      -= OnSessionError;
+                _ = Task.Run(async () => { try { await tx.DisposeAsync().ConfigureAwait(false); } catch { } });
+            }
+            Error?.Invoke($"Erreur au démarrage : {ex.Message}");
             ResetToIdleUnsafe();
         }
         finally
