@@ -85,16 +85,20 @@
                     <TextBlock Text="MICROPHONE"
                                FontSize="11" FontWeight="SemiBold" Opacity="0.6"
                                Margin="0,0,0,10"/>
-                    <Grid Margin="0,0,0,18">
+                    <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <ComboBox x:Name="MicCombo" Grid.Column="0"
                                   HorizontalAlignment="Stretch"/>
-                        <ui:Button Grid.Column="1" Content="Test"
+                        <ui:Button x:Name="TestMicButton" Grid.Column="1" Content="Test"
                                    Margin="8,0,0,0" Click="TestMic_Click"/>
                     </Grid>
+                    <ProgressBar x:Name="MicLevelBar"
+                                 Height="6" Minimum="0" Maximum="100"
+                                 Visibility="Collapsed"
+                                 Margin="0,0,0,10"/>
 
                     <!-- Mode -->
                     <TextBlock Text="MODE"

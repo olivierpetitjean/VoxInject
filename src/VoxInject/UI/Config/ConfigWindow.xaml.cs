@@ -19,6 +19,9 @@ public partial class ConfigWindow : FluentWindow
     private List<Profile> _profiles;
     private Profile?      _activeProfile;
 
+    // Mic test state
+    private AudioCaptureService? _testAudio;
+
     // Hotkey capture state
     private uint _capturedModifiers;
     private uint _capturedVk;
@@ -36,6 +39,7 @@ public partial class ConfigWindow : FluentWindow
 
         InitializeComponent();
         Loaded += OnLoaded;
+        Closed += (_, _) => StopMicTest();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -168,12 +172,46 @@ public partial class ConfigWindow : FluentWindow
 
     private void TestMic_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(
-            "Microphone test: speak now — feature coming in next build.",
-            "VoxInject",
-            System.Windows.MessageBoxButton.OK,
-            System.Windows.MessageBoxImage.Information);
+        if (_testAudio is null) StartMicTest();
+        else                    StopMicTest();
     }
+
+    private void StartMicTest()
+    {
+        var deviceId = (MicCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+
+        _testAudio = new AudioCaptureService();
+        _testAudio.LevelChanged  += OnTestMicLevel;
+        _testAudio.CaptureFailed += OnTestMicFailed;
+        // Silence threshold at minimum — we only need the level signal, not silence detection
+        _testAudio.Start(deviceId, silenceThresholdDb: -80.0, silenceTimeoutMs: int.MaxValue);
+
+        MicLevelBar.Visibility = Visibility.Visible;
+        TestMicButton.Content  = "Arrêter";
+    }
+
+    private void StopMicTest()
+    {
+        if (_testAudio is null) return;
+        _testAudio.LevelChanged  -= OnTestMicLevel;
+        _testAudio.CaptureFailed -= OnTestMicFailed;
+        _testAudio.Stop();
+        _testAudio.Dispose();
+        _testAudio = null;
+
+        MicLevelBar.Visibility = Visibility.Collapsed;
+        MicLevelBar.Value      = 0;
+        TestMicButton.Content  = "Test";
+    }
+
+    private void OnTestMicLevel(double db)
+    {
+        // Map -60 dB → 0 dB to 0 → 100 %
+        var value = Math.Clamp((db + 60.0) / 60.0 * 100.0, 0.0, 100.0);
+        Dispatcher.BeginInvoke(() => MicLevelBar.Value = value);
+    }
+
+    private void OnTestMicFailed(string _) => Dispatcher.BeginInvoke(StopMicTest);
 
     // ── Profiles ─────────────────────────────────────────────────────────────
 
