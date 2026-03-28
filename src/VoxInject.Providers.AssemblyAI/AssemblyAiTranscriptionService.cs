@@ -111,7 +111,17 @@ public sealed class AssemblyAiTranscriptionService : ITranscriptionService
                 {
                     result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        // Server closed the connection — treat as a session error so the
+                        // controller can clean up and notify the user (e.g. invalid API key
+                        // causes AssemblyAI to close with code 4003 + description).
+                        var desc   = _ws?.CloseStatusDescription;
+                        var status = ((int?)_ws?.CloseStatus)?.ToString() ?? "unknown";
+                        SessionError?.Invoke(string.IsNullOrWhiteSpace(desc)
+                            ? $"Connexion fermée par le serveur (code {status})"
+                            : desc);
                         return;
+                    }
                     ms.Write(buffer, 0, result.Count);
                 }
                 while (!result.EndOfMessage);

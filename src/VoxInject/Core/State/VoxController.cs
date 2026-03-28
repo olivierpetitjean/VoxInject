@@ -108,8 +108,12 @@ public sealed class VoxController : IDisposable
             var provider = _providers.FirstOrDefault(p => p.Id == s.ActiveProviderId)
                            ?? _providers.FirstOrDefault();
 
+            // Reset log early so every code path (including early validation errors) is captured
+            FileLogger.Reset();
+
             if (provider is null)
             {
+                FileLogger.Log("No provider loaded");
                 Error?.Invoke("Aucun provider de transcription chargé — vérifiez le dossier plugins/.");
                 return;
             }
@@ -127,6 +131,7 @@ public sealed class VoxController : IDisposable
 
             if (!config.Any(kv => !string.IsNullOrWhiteSpace(kv.Value)))
             {
+                FileLogger.Log("No API key configured");
                 Error?.Invoke("Aucune clé API configurée — ouvrez les Paramètres.");
                 return;
             }
@@ -138,7 +143,6 @@ public sealed class VoxController : IDisposable
             _transcriptionDone      = false;
             _errorGuard             = 0;
 
-            FileLogger.Reset();
             FileLogger.Log($"Session start — provider={provider.Id} AutoEnterOnSilence={profile.AutoEnterOnSilence} SilenceTimeoutMs={profile.SilenceTimeoutMs} ThresholdDb={profile.SilenceThresholdDb}");
 
             if (s.ToneEnabled)
@@ -157,6 +161,7 @@ public sealed class VoxController : IDisposable
                 profile.AutoPunctuation,
                 profile.VocabularyBoost).ConfigureAwait(false);
 
+            FileLogger.Log("WebSocket connected — starting audio");
             _audio.AudioChunkReady += OnAudioChunk;
             _audio.LevelChanged    += OnLevelChanged;
             _audio.SilenceDetected += OnSilenceDetected;
@@ -371,6 +376,7 @@ public sealed class VoxController : IDisposable
         if (Interlocked.CompareExchange(ref _errorGuard, 1, 0) != 0)
             return; // already handled
 
+        FileLogger.Log($"TriggerSessionError: {message}");
         Error?.Invoke(message);
         _ = Task.Run(EmergencyStopAsync);
     }
