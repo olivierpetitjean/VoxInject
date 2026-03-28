@@ -41,7 +41,7 @@ public partial class App : Application
         // Error may fire from any background thread — always dispatch to UI thread
         _vox.Error          += msg => Dispatcher.BeginInvoke(() =>
         {
-            _systray?.NotifyError(msg);
+            _systray?.NotifyWarning(msg);
             _systray?.SetWarning(true);
         });
         _vox.SessionStarted += ()  => Dispatcher.BeginInvoke(() => _systray?.SetWarning(false));
