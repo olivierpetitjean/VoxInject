@@ -45,8 +45,6 @@ public sealed class VoxController : IDisposable
     private int           _silenceTimeoutMs;
 
     public event Action<string>? Error;
-    /// <summary>Fires once a session is fully started (provider connected, audio running).</summary>
-    public event Action? SessionStarted;
 
     public VoxController(
         ISettingsService                  settings,
@@ -166,8 +164,6 @@ public sealed class VoxController : IDisposable
             _audio.LevelChanged    += OnLevelChanged;
             _audio.SilenceDetected += OnSilenceDetected;
             _audio.CaptureFailed   += OnCaptureFailed;
-
-            SessionStarted?.Invoke();
 
             _silenceThresholdDb  = profile.SilenceThresholdDb;
             _silenceTimeoutMs    = profile.SilenceTimeoutMs;

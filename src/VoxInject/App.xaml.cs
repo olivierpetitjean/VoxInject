@@ -38,28 +38,55 @@ public partial class App : Application
 
         _hotkey.HotkeyPressed  += OnHotkeyPressed;
         _hotkey.HotkeyReleased += OnHotkeyReleased;
-        // Error may fire from any background thread — always dispatch to UI thread
-        _vox.Error          += msg => Dispatcher.BeginInvoke(() =>
+
+        // Session errors fire from background threads — dispatch to UI thread
+        _vox.Error += msg => Dispatcher.BeginInvoke(() =>
         {
             _systray?.NotifyWarning(msg);
             _systray?.SetWarning(true);
         });
-        _vox.SessionStarted += ()  => Dispatcher.BeginInvoke(() => _systray?.SetWarning(false));
+
+        // Recheck config validity whenever settings are saved
+        _settings.SettingsChanged += (_, s) =>
+        {
+            TryRegisterHotkey(s.HotkeyModifiers, s.HotkeyVk);
+            Dispatcher.BeginInvoke(() => _systray?.SetWarning(!IsConfigPresent()));
+        };
 
         TryRegisterHotkey(_settings.Current.HotkeyModifiers, _settings.Current.HotkeyVk);
 
-        _settings.SettingsChanged += (_, s) =>
-            TryRegisterHotkey(s.HotkeyModifiers, s.HotkeyVk);
-
-        // Open settings if no provider is configured at all
-        var activeProvider = _providers.FirstOrDefault(
-            p => p.Id == _settings.Current.ActiveProviderId) ?? _providers.FirstOrDefault();
-        var hasAnySecret = activeProvider?.ConfigFields
-            .Where(f => f.Type == ProviderFieldType.Password)
-            .Any(f => !string.IsNullOrEmpty(_secrets.Load($"{activeProvider.Id}-{f.Key}"))) ?? false;
-        if (!hasAnySecret)
+        // Startup check — badge on immediately if no API key is configured
+        if (!IsConfigPresent())
+        {
+            _systray.SetWarning(true);
             OpenConfigWindow();
+        }
     }
+
+    // ── Config validity ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns true if at least one non-empty value is present for the active provider.
+    /// Does NOT attempt a network connection — only checks stored configuration.
+    /// </summary>
+    private bool IsConfigPresent()
+    {
+        var s        = _settings!.Current;
+        var provider = _providers.FirstOrDefault(p => p.Id == s.ActiveProviderId)
+                       ?? _providers.FirstOrDefault();
+        if (provider is null) return false;
+
+        foreach (var field in provider.ConfigFields.Where(f => f.Type == ProviderFieldType.Password))
+            if (!string.IsNullOrEmpty(_secrets!.Load($"{provider.Id}-{field.Key}")))
+                return true;
+
+        if (s.ProviderTextConfigs.TryGetValue(provider.Id, out var textFields))
+            return textFields.Any(kv => !string.IsNullOrWhiteSpace(kv.Value));
+
+        return false;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void TryRegisterHotkey(uint mods, uint vk)
     {

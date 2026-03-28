@@ -1,8 +1,7 @@
 using System.Drawing;
-using System.Drawing.Imaging;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using H.NotifyIcon;
@@ -12,10 +11,10 @@ namespace VoxInject.Infrastructure.Systray;
 
 public sealed class SystrayController : IDisposable
 {
-    private readonly TaskbarIcon  _trayIcon;
-    private readonly ImageSource  _normalSource;
-    private readonly ImageSource  _warningSource;
-    private bool                  _hasWarning;
+    private readonly TaskbarIcon _trayIcon;
+    private readonly ImageSource _normalSource;
+    private readonly ImageSource _warningSource;
+    private bool                 _hasWarning;
 
     public SystrayController(Action openConfig, Action exitApp)
     {
@@ -36,24 +35,23 @@ public sealed class SystrayController : IDisposable
         _trayIcon.TrayMouseDoubleClick += (_, _) => openConfig();
         _trayIcon.ForceCreate();
 
-        // Build both icon variants once; store as ImageSource so IconSource can be updated at runtime
-        using var normalIcon  = LoadBaseIcon();
-        using var warningIcon = BuildWarningIcon(normalIcon);
-        _normalSource  = ToImageSource(normalIcon);
-        _warningSource = ToImageSource(warningIcon);
+        // Build both icon variants once as BitmapImage (PNG stream — avoids InteropBitmap)
+        using var normalBitmap  = LoadBaseBitmap();
+        using var warningBitmap = BuildWarningBitmap(normalBitmap);
+        _normalSource  = BitmapToImageSource(normalBitmap);
+        _warningSource = BitmapToImageSource(warningBitmap);
     }
 
     // ── Warning badge ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Overlays (or removes) an orange dot on the systray icon to signal a
-    /// configuration or session error without replacing the icon entirely.
+    /// Overlays (or removes) an orange dot on the systray icon.
+    /// Must be called on the UI thread.
     /// </summary>
     public void SetWarning(bool warning)
     {
         if (_hasWarning == warning) return;
         _hasWarning = warning;
-        // Update IconSource (not Icon) — H.NotifyIcon uses IconSource as the authoritative source
         _trayIcon.IconSource = warning ? _warningSource : _normalSource;
     }
 
@@ -70,55 +68,58 @@ public sealed class SystrayController : IDisposable
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static Icon LoadBaseIcon()
+    private static Bitmap LoadBaseBitmap()
     {
         try
         {
             var stream = Application.GetResourceStream(
                 new Uri("pack://application:,,,/Assets/app.ico"))?.Stream;
             if (stream is not null)
-                return new Icon(stream, 16, 16);
+            {
+                using var icon = new Icon(stream, 16, 16);
+                return icon.ToBitmap();
+            }
         }
         catch { /* fall through */ }
 
-        return SystemIcons.Application;
+        return new Bitmap(16, 16);
     }
 
-    /// <summary>
-    /// Draws the base icon with a 6 × 6 px orange dot in the bottom-right corner.
-    /// </summary>
-    private static Icon BuildWarningIcon(Icon baseIcon)
+    /// <summary>Draws a 6×6 px orange dot in the bottom-right corner of the base bitmap.</summary>
+    private static Bitmap BuildWarningBitmap(Bitmap baseIcon)
     {
-        using var bmp = new Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using var g   = Graphics.FromImage(bmp);
+        var bmp = new Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
 
-        g.DrawIcon(baseIcon, 0, 0);
+        g.DrawImage(baseIcon, 0, 0, 16, 16);
 
-        // Orange dot — bottom-right corner, 6 × 6 px
         using var fill = new SolidBrush(System.Drawing.Color.FromArgb(255, 165, 0));
         g.FillEllipse(fill, 9, 9, 6, 6);
 
-        // Thin dark ring so it pops on both light and dark taskbars
         using var ring = new System.Drawing.Pen(System.Drawing.Color.FromArgb(160, 100, 0), 1f);
         g.DrawEllipse(ring, 9, 9, 5, 5);
 
-        var hIcon = bmp.GetHicon();
-        var icon  = Icon.FromHandle(hIcon);
-        return icon;
+        return bmp;
     }
 
     /// <summary>
-    /// Converts a <see cref="Icon"/> to a frozen <see cref="BitmapSource"/> usable as
-    /// <see cref="TaskbarIcon.IconSource"/> from any thread after freezing.
+    /// Converts a GDI+ <see cref="Bitmap"/> to a frozen <see cref="BitmapImage"/> via PNG
+    /// stream — the only <see cref="BitmapSource"/> subtype H.NotifyIcon accepts as
+    /// <see cref="TaskbarIcon.IconSource"/>.
     /// </summary>
-    private static ImageSource ToImageSource(Icon icon)
+    private static ImageSource BitmapToImageSource(Bitmap bmp)
     {
-        var source = Imaging.CreateBitmapSourceFromHIcon(
-            icon.Handle,
-            Int32Rect.Empty,
-            BitmapSizeOptions.FromEmptyOptions());
-        source.Freeze(); // makes it cross-thread safe
-        return source;
+        using var ms = new MemoryStream();
+        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+        ms.Position = 0;
+
+        var bi = new BitmapImage();
+        bi.BeginInit();
+        bi.StreamSource  = ms;
+        bi.CacheOption   = BitmapCacheOption.OnLoad;
+        bi.EndInit();
+        bi.Freeze();
+        return bi;
     }
 
     public void Dispose() => _trayIcon.Dispose();
