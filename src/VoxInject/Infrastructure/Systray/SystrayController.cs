@@ -1,9 +1,6 @@
 using System.Drawing;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using H.NotifyIcon;
 using H.NotifyIcon.Core;
 
@@ -12,8 +9,8 @@ namespace VoxInject.Infrastructure.Systray;
 public sealed class SystrayController : IDisposable
 {
     private readonly TaskbarIcon _trayIcon;
-    private readonly ImageSource _normalSource;
-    private readonly ImageSource _warningSource;
+    // Kept alive for the entire app lifetime — one 16×16 HICON, not a real leak.
+    private readonly Icon        _warningIcon;
     private bool                 _hasWarning;
 
     public SystrayController(Action openConfig, Action exitApp)
@@ -35,24 +32,23 @@ public sealed class SystrayController : IDisposable
         _trayIcon.TrayMouseDoubleClick += (_, _) => openConfig();
         _trayIcon.ForceCreate();
 
-        // Build both icon variants once as BitmapImage (PNG stream — avoids InteropBitmap)
-        using var normalBitmap  = LoadBaseBitmap();
-        using var warningBitmap = BuildWarningBitmap(normalBitmap);
-        _normalSource  = BitmapToImageSource(normalBitmap);
-        _warningSource = BitmapToImageSource(warningBitmap);
+        _warningIcon = BuildWarningIcon();
     }
 
     // ── Warning badge ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Overlays (or removes) an orange dot on the systray icon.
-    /// Must be called on the UI thread.
+    /// Switches the systray icon between normal (IconSource from XAML) and
+    /// warning (dynamically-drawn orange dot). Must be called on the UI thread.
     /// </summary>
     public void SetWarning(bool warning)
     {
         if (_hasWarning == warning) return;
         _hasWarning = warning;
-        _trayIcon.IconSource = warning ? _warningSource : _normalSource;
+
+        // Icon (System.Drawing.Icon) overrides IconSource when non-null.
+        // Setting it back to null lets H.NotifyIcon fall through to IconSource.
+        _trayIcon.Icon = warning ? _warningIcon : null;
     }
 
     // ── Notifications ─────────────────────────────────────────────────────────
@@ -68,58 +64,40 @@ public sealed class SystrayController : IDisposable
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static Bitmap LoadBaseBitmap()
+    /// <summary>
+    /// Loads app.ico at 16×16, then draws an orange 6×6 dot in the bottom-right corner.
+    /// </summary>
+    private static Icon BuildWarningIcon()
     {
+        // Load base
+        Bitmap? baseBitmap = null;
         try
         {
             var stream = Application.GetResourceStream(
                 new Uri("pack://application:,,,/Assets/app.ico"))?.Stream;
             if (stream is not null)
-            {
-                using var icon = new Icon(stream, 16, 16);
-                return icon.ToBitmap();
-            }
+                using (var icon = new Icon(stream, 16, 16))
+                    baseBitmap = icon.ToBitmap();
         }
-        catch { /* fall through */ }
+        catch { /* fall through to blank */ }
 
-        return new Bitmap(16, 16);
-    }
+        using var bmp = new Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g   = Graphics.FromImage(bmp);
 
-    /// <summary>Draws a 6×6 px orange dot in the bottom-right corner of the base bitmap.</summary>
-    private static Bitmap BuildWarningBitmap(Bitmap baseIcon)
-    {
-        var bmp = new Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using var g = Graphics.FromImage(bmp);
+        if (baseBitmap is not null)
+        {
+            g.DrawImage(baseBitmap, 0, 0, 16, 16);
+            baseBitmap.Dispose();
+        }
 
-        g.DrawImage(baseIcon, 0, 0, 16, 16);
-
+        // Orange dot — bottom-right corner
         using var fill = new SolidBrush(System.Drawing.Color.FromArgb(255, 165, 0));
         g.FillEllipse(fill, 9, 9, 6, 6);
 
         using var ring = new System.Drawing.Pen(System.Drawing.Color.FromArgb(160, 100, 0), 1f);
         g.DrawEllipse(ring, 9, 9, 5, 5);
 
-        return bmp;
-    }
-
-    /// <summary>
-    /// Converts a GDI+ <see cref="Bitmap"/> to a frozen <see cref="BitmapImage"/> via PNG
-    /// stream — the only <see cref="BitmapSource"/> subtype H.NotifyIcon accepts as
-    /// <see cref="TaskbarIcon.IconSource"/>.
-    /// </summary>
-    private static ImageSource BitmapToImageSource(Bitmap bmp)
-    {
-        using var ms = new MemoryStream();
-        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-        ms.Position = 0;
-
-        var bi = new BitmapImage();
-        bi.BeginInit();
-        bi.StreamSource  = ms;
-        bi.CacheOption   = BitmapCacheOption.OnLoad;
-        bi.EndInit();
-        bi.Freeze();
-        return bi;
+        return Icon.FromHandle(bmp.GetHicon());
     }
 
     public void Dispose() => _trayIcon.Dispose();
