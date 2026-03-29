@@ -1,4 +1,5 @@
 using System.Reflection;
+using VoxInject.Diagnostics;
 using VoxInject.Providers.Abstractions;
 
 namespace VoxInject.Infrastructure;
@@ -32,9 +33,10 @@ public static class PluginLoader
                         providers.Add(p);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Malformed or incompatible plugin — skip silently.
+                // Malformed or incompatible plugin — skip, but leave a trace in the log.
+                FileLogger.Log($"PluginLoader: skipped '{Path.GetFileName(dll)}' — {ex.GetType().Name}: {ex.Message}");
             }
         }
 

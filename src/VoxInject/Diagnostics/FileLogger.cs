@@ -23,6 +23,9 @@ public static class FileLogger
     {
         var line = $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}";
         lock (_lock)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
             File.AppendAllText(LogPath, line);
+        }
     }
 }
