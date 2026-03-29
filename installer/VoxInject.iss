@@ -31,7 +31,8 @@ PrivilegesRequired=lowest
 
 ; Output
 OutputDir=output
-OutputBaseFilename=VoxInject-{#MyAppVersion}-setup
+; Nom fixe → URL permanente sur GitHub Releases/latest/download/VoxInject-setup.exe
+OutputBaseFilename=VoxInject-setup
 SetupIconFile=..\src\VoxInject\Assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName} {#MyAppVersion}

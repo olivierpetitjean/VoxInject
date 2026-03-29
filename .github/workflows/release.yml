@@ -58,4 +58,4 @@ jobs:
         with:
           name: VoxInject ${{ steps.version.outputs.value }}
           generate_release_notes: true
-          files: installer/output/VoxInject-${{ steps.version.outputs.value }}-setup.exe
+          files: installer/output/VoxInject-setup.exe

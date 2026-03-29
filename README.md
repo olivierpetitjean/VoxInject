@@ -34,7 +34,12 @@ Press a hotkey, speak, release. The text appears where your cursor is.
 
 ### Download (recommended)
 
-Download the latest release from the [Releases](https://github.com/olivierpetitjean/VoxInject/releases) page and run `VoxInject.exe`.
+[![Download installer](https://img.shields.io/github/v/release/olivierpetitjean/VoxInject?label=Download&logo=windows&color=0078d4)](https://github.com/olivierpetitjean/VoxInject/releases/latest/download/VoxInject-setup.exe)
+
+Download **[VoxInject-setup.exe](https://github.com/olivierpetitjean/VoxInject/releases/latest/download/VoxInject-setup.exe)** and run it.
+No admin rights required. Installs in `%LocalAppData%\Programs\VoxInject`.
+
+> Windows may show a SmartScreen warning on first run — this is expected for unsigned open-source software. Click **More info → Run anyway**.
 
 ### Build from source
 
