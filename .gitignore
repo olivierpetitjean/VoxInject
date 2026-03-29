@@ -24,6 +24,9 @@ artifacts/
 .DS_Store
 Thumbs.db
 
+# Installer build output
+installer/output/
+
 # Runtime secrets — NEVER commit these
 *.bin
 appsettings.*.json
@@ -31,3 +34,6 @@ secrets.json
 
 # User-specific settings
 launchSettings.json
+
+# Claude Code local config
+.claude/
